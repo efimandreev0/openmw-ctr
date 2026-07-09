@@ -90,6 +90,15 @@ namespace MWWorld
                 fn(store);
         }
 
+#ifdef __3DS__
+        // Diet sweep after mass name lookups: see CellStore::ctrDropPreloadedIds.
+        void ctrDropPreloadedIds()
+        {
+            for (auto& [_, store] : mCells)
+                store.ctrDropPreloadedIds();
+        }
+#endif
+
         /// Get all Ptrs referencing \a name in exterior cells
         /// @note Due to the current implementation of getPtr this only supports one Ptr per cell.
         /// @note name must be lower case

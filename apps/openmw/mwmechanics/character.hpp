@@ -163,7 +163,6 @@ namespace MWMechanics
         std::string mCurrentHit;
 
         UpperBodyState mUpperBodyState{ UpperBodyState::None };
-        bool mResetIdleOnAttackEnd{ false };
 
         JumpingState mJumpState{ JumpState_None };
         std::string mCurrentJump;

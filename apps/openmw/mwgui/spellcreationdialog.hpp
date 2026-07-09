@@ -180,6 +180,9 @@ namespace MWGui
         void onCancelButtonClicked(MyGUI::Widget* sender);
         void onBuyButtonClicked(MyGUI::Widget* sender);
         void onAccept(MyGUI::EditBox* sender);
+#if defined(__vita__) || defined(__3DS__)
+        void onNameClicked(MyGUI::Widget* sender);
+#endif
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
 
         void notifyEffectsChanged() override;

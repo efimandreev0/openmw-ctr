@@ -65,7 +65,7 @@ namespace ESM
             return;
         }
 
-        esm.writeHNCString("MODL", mModel.getOriginal());
+        esm.writeHNCString("MODL", mModel);
         esm.writeHNOCRefId("FNAM", mRace);
         esm.writeNamedComposite("BYDT", mData);
     }

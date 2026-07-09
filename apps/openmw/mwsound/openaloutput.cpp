@@ -20,6 +20,9 @@
 
 #include "efxpresets.h"
 #include "loudness.hpp"
+#ifdef __3DS__
+#include "nsadecoder.hpp"
+#endif
 #include "openaloutput.hpp"
 #include "sound.hpp"
 #include "sounddecoder.hpp"
@@ -832,17 +835,27 @@ namespace MWSound
 
         AL.SOFT_source_spatialize = alIsExtensionPresent("AL_SOFT_source_spatialize");
 
+        // 3DS: 48 sources instead of 256. Each source drives an OpenAL-Soft
+        // Voice with its own mixer buffers; 256 voices cost several MB of heap
+        // the handheld cannot spare, and Morrowind never plays anywhere near
+        // 48 concurrent sounds. Keep the source and (fork-side) Voice pools in
+        // lockstep so the device-reset path does not re-inflate.
+#ifdef __3DS__
+        constexpr ALCuint kMaxSources = 48;
+#else
+        constexpr ALCuint kMaxSources = 256;
+#endif
         ALCuint maxtotal;
         ALCint maxmono = 0, maxstereo = 0;
         alcGetIntegerv(mDevice, ALC_MONO_SOURCES, 1, &maxmono);
         alcGetIntegerv(mDevice, ALC_STEREO_SOURCES, 1, &maxstereo);
         if (getALCError(mDevice) != ALC_NO_ERROR)
-            maxtotal = 256;
+            maxtotal = kMaxSources;
         else
         {
-            maxtotal = std::min<ALCuint>(maxmono + maxstereo, 256);
+            maxtotal = std::min<ALCuint>(maxmono + maxstereo, kMaxSources);
             if (maxtotal == 0) // workaround for broken implementations
-                maxtotal = 256;
+                maxtotal = kMaxSources;
         }
         for (size_t i = 0; i < maxtotal; i++)
         {
@@ -1037,10 +1050,40 @@ namespace MWSound
         ALenum format = AL_NONE;
         int srate = 0;
 
+        DecoderPtr decoder = mManager.getDecoder();
+        const VFS::Path::Normalized corrected
+            = Misc::ResourceHelpers::correctSoundPath(fname, *decoder->mResourceMgr);
+
+#ifdef __3DS__
+        {
+            // Pre-baked IMA4: upload the ADPCM blocks directly — 4x less
+            // buffer RAM than decoded PCM16 and no decode work at all. The
+            // openal-soft mixer inflates IMA4 natively while mixing.
+            NsaDecoder::Blob blob;
+            if (NsaDecoder::readFile(NsaDecoder::cachePathFor(corrected), blob)
+                && blob.mData.size() % (blob.mHeader.mBlockBytes ? blob.mHeader.mBlockBytes : 1) == 0)
+            {
+                ALuint buf = 0;
+                alGenBuffers(1, &buf);
+                alBufferi(buf, AL_UNPACK_BLOCK_ALIGNMENT_SOFT, static_cast<ALint>(blob.mHeader.mSamplesPerBlock));
+                alBufferData(buf,
+                    (blob.mHeader.mChannels == 2) ? AL_FORMAT_STEREO_IMA4 : AL_FORMAT_MONO_IMA4, blob.mData.data(),
+                    static_cast<ALsizei>(blob.mData.size()), static_cast<ALsizei>(blob.mHeader.mRate));
+                ALint size = 0;
+                alGetBufferi(buf, AL_SIZE, &size);
+                if (getALError() == AL_NO_ERROR)
+                    return std::make_pair(MAKE_PTRID(buf), size);
+                if (buf && alIsBuffer(buf))
+                    alDeleteBuffers(1, &buf);
+                getALError();
+                // fall through to the decoder path below
+            }
+        }
+#endif
+
         try
         {
-            DecoderPtr decoder = mManager.getDecoder();
-            decoder->open(Misc::ResourceHelpers::correctSoundPath(fname, *decoder->mResourceMgr));
+            decoder->open(corrected);
 
             ChannelConfig chans;
             SampleType type;

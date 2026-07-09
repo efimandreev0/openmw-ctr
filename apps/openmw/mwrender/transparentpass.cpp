@@ -120,7 +120,7 @@ namespace MWRender
             osgUtil::RenderLeaf* rl = *rit;
             const osg::StateSet* ss = rl->_parent->getStateSet();
 
-            if (rl->_drawable->getNodeMask() == Mask_ParticleSystem)
+            if (rl->_drawable->getNodeMask() == Mask_ParticleSystem || rl->_drawable->getNodeMask() == Mask_Effect)
                 continue;
 
             if (ss->getAttribute(osg::StateAttribute::MATERIAL))

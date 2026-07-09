@@ -182,6 +182,7 @@ namespace OMW
         Files::Collections mFileCollections;
         Translation::Storage mTranslationDataStorage;
         bool mNewGame;
+        bool mForceRescan = false;
 
         Files::ConfigurationManager& mCfgMgr;
         int mGlMaxTextureImageUnits;
@@ -233,6 +234,7 @@ namespace OMW
         void setSkipMenu(bool skipMenu, bool newGame);
 
         void setGrabMouse(bool grab) { mGrab = grab; }
+        void setForceRescan(bool v) { mForceRescan = v; }
 
         /// Initialise and enter main loop.
         void go();

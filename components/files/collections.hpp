@@ -10,6 +10,8 @@ namespace Files
     class Collections
     {
     public:
+        using CollectionsMap = std::map<std::string, MultiDirCollection, Misc::StringUtils::CiComp>;
+
         Collections();
 
         ///< Directories are listed with increasing priority.
@@ -30,10 +32,14 @@ namespace Files
 
         const Files::PathContainer& getPaths() const;
 
+        /// Restore/read the per-extension cache map. Used by scancache.
+        void setCollections(CollectionsMap collections) const { mCollections = std::move(collections); }
+        const CollectionsMap& getCollections() const { return mCollections; }
+
     private:
         Files::PathContainer mDirectories;
 
-        mutable std::map<std::string, MultiDirCollection, Misc::StringUtils::CiComp> mCollections;
+        mutable CollectionsMap mCollections;
     };
 }
 

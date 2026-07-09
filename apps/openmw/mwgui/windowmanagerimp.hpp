@@ -130,7 +130,7 @@ namespace MWGui
         WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
             Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
             const std::filesystem::path& logpath, bool consoleOnlyScripts, Translation::Storage& translationDataStorage,
-            ToUTF8::FromType encoding, bool exportFonts, const std::string& versionDescription,
+            ToUTF8::FromType encoding, bool exportFonts, const std::string& versionDescription, bool useShaders,
             Files::ConfigurationManager& cfgMgr);
         virtual ~WindowManager();
 
@@ -279,8 +279,6 @@ namespace MWGui
                                           ///< (->MessageBoxmanager->InteractiveMessageBox)
 
         void update(float duration);
-
-        void updateMouseEmulationCursor();
 
         /**
          * Fetches a GMST string from the store, if there is no setting with the given
@@ -431,6 +429,19 @@ namespace MWGui
         void trackWindow(Layout* layout, const WindowSettingValues& settings);
         void onWindowChangeCoord(MyGUI::Window* sender);
 
+        // Deferred window construction. On desktop these run inside initUI;
+        // on the 3DS the heavyweights (Settings ~3.1MB, Alchemy ~2.6MB,
+        // QuickKeys+Levelup ~2.4MB) materialize on first use instead — see
+        // ensureLazyWindow / toggleSettingsWindow.
+        void registerWindowForLua(WindowBase* window);
+        void createSettingsWindow();
+        void createAlchemyWindow();
+        void createQuickKeysMenu();
+        void createLevelupDialog();
+#ifdef __3DS__
+        void ensureLazyWindow(GuiMode mode);
+#endif
+
         ESM::RefId mSelectedSpell;
         MWWorld::Ptr mSelectedEnchantItem;
         MWWorld::Ptr mSelectedWeapon;
@@ -460,6 +471,8 @@ namespace MWGui
         ConfirmationDialog* mConfirmationDialog;
         SpellWindow* mSpellWindow;
         QuickKeysMenu* mQuickKeysMenu;
+        AlchemyWindow* mAlchemyWindow = nullptr;
+        LevelupDialog* mLevelupDialog = nullptr;
         LoadingScreen* mLoadingScreen;
         WaitDialog* mWaitDialog;
         std::unique_ptr<SoulgemDialog> mSoulgemDialog;

@@ -50,7 +50,7 @@
 #include "../mwmechanics/npcstats.hpp"
 
 #include "filter.hpp"
-#include "keywordsearch.hpp"
+#include "hypertextparser.hpp"
 
 namespace MWDialogue
 {
@@ -77,8 +77,6 @@ namespace MWDialogue
         mOriginalDisposition = 0;
         mCurrentDisposition = 0;
         mPermanentDispositionChange = 0;
-        mKeywordSearch.clear();
-        mKeywordSearchInitialized = false;
     }
 
     void DialogueManager::addTopic(const ESM::RefId& topic)
@@ -86,30 +84,28 @@ namespace MWDialogue
         mKnownTopics.insert(topic);
     }
 
-    const MWDialogue::KeywordSearch& DialogueManager::getKeywordSearch() const
-    {
-        const auto& dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>();
-        if (dialogue.getKeywordSearchModFlag() || !mKeywordSearchInitialized)
-        {
-            mKeywordSearch.clear();
-
-            for (const ESM::Dialogue& topic : dialogue)
-                mKeywordSearch.seed(mTranslationDataStorage.topicKeyword(topic.mStringId), topic.mStringId);
-
-            mKeywordSearchInitialized = true;
-        }
-
-        return mKeywordSearch;
-    }
-
-    std::vector<ESM::RefId> DialogueManager::parseTopicIdsFromText(const std::string& text) const
+    std::vector<ESM::RefId> DialogueManager::parseTopicIdsFromText(const std::string& text)
     {
         std::vector<ESM::RefId> topicIdList;
 
-        std::vector<KeywordSearch::Match> matches = getKeywordSearch().parseHyperText(text, mTranslationDataStorage);
+        std::vector<HyperTextParser::Token> hypertext = HyperTextParser::parseHyperText(text);
 
-        for (const auto& match : matches)
-            topicIdList.push_back(ESM::RefId::stringRefId(match.mTopicId));
+        for (std::vector<HyperTextParser::Token>::iterator tok = hypertext.begin(); tok != hypertext.end(); ++tok)
+        {
+            std::string topicId = Misc::StringUtils::lowerCase(tok->mText);
+
+            if (tok->isExplicitLink())
+            {
+                // calculation of standard form for all hyperlinks
+                size_t asteriskCount = HyperTextParser::removePseudoAsterisks(topicId);
+                for (; asteriskCount > 0; --asteriskCount)
+                    topicId.append("*");
+
+                topicId = mTranslationDataStorage.topicStandardForm(topicId);
+            }
+
+            topicIdList.push_back(ESM::RefId::stringRefId(topicId));
+        }
 
         return topicIdList;
     }
@@ -156,6 +152,9 @@ namespace MWDialogue
         mChoices.clear();
 
         mActor = actor;
+#if defined(__vita__) || defined(__3DS__)
+        mActorKnownTopicsDirty = true;
+#endif
 
         MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
         mTalkedTo = creatureStats.hasTalkedToPlayer();
@@ -182,12 +181,12 @@ namespace MWDialogue
                     }
 
                     MWScript::InterpreterContext interpreterContext(&mActor.getRefData().getLocals(), mActor);
-                    callback->addResponse({}, Interpreter::fixDefinesDialog(info->mResponse, interpreterContext));
+                    callback->addResponse({}, Interpreter::fixDefinesDialog(info->getResponse(), interpreterContext));
                     MWBase::Environment::get().getLuaManager()->onDialogueResponse(mActor, *info, dialogue);
-                    executeScript(info->mResultScript, mActor);
+                    executeScript(info->getResultScript(), mActor);
                     mLastTopic = dialogue.mId;
 
-                    addTopicsFromText(info->mResponse);
+                    addTopicsFromText(info->getResponse());
 
                     return true;
                 }
@@ -252,6 +251,9 @@ namespace MWDialogue
 
     void DialogueManager::executeScript(const std::string& script, const MWWorld::Ptr& actor)
     {
+#if defined(__vita__) || defined(__3DS__)
+        mActorKnownTopicsDirty = true;
+#endif
         if (const std::optional<Interpreter::Program> program = compile(script, actor))
         {
             try
@@ -312,7 +314,7 @@ namespace MWDialogue
                 title = dialogue.mStringId;
 
             MWScript::InterpreterContext interpreterContext(&mActor.getRefData().getLocals(), mActor);
-            callback->addResponse(title, Interpreter::fixDefinesDialog(info->mResponse, interpreterContext));
+            callback->addResponse(title, Interpreter::fixDefinesDialog(info->getResponse(), interpreterContext));
             MWBase::Environment::get().getLuaManager()->onDialogueResponse(mActor, *info, dialogue);
 
             if (dialogue.mType == ESM::Dialogue::Topic)
@@ -325,9 +327,9 @@ namespace MWDialogue
 
             mLastTopic = topic;
 
-            executeScript(info->mResultScript, mActor);
+            executeScript(info->getResultScript(), mActor);
 
-            addTopicsFromText(info->mResponse);
+            addTopicsFromText(info->getResponse());
         }
     }
 
@@ -343,6 +345,11 @@ namespace MWDialogue
 
     void DialogueManager::updateActorKnownTopics()
     {
+#if defined(__vita__) || defined(__3DS__)
+        if (!mActorKnownTopicsDirty)
+            return;
+        mActorKnownTopicsDirty = false;
+#endif
         updateGlobals();
 
         mActorKnownTopics.clear();
@@ -355,12 +362,17 @@ namespace MWDialogue
         {
             if (dialog.mType == ESM::Dialogue::Topic)
             {
+                // Keep the topic's info list pinned while `answer` is used —
+                // on the 3DS it lives in a rematerialized list (see
+                // Dialogue::readInfos).
+                const auto pinnedInfos = dialog.readInfos();
                 const auto* answer = filter.search(dialog, true).second;
                 const auto& topicId = dialog.mId;
 
                 if (answer != nullptr)
                 {
                     int topicFlags = 0;
+                    std::vector<ESM::RefId> responseTopicRefs;
                     if (!inJournal(topicId, answer->mId))
                     {
                         // Does this dialogue contains some actor-specific answer?
@@ -368,8 +380,15 @@ namespace MWDialogue
                             topicFlags |= MWBase::DialogueManager::TopicType::Specific;
                     }
                     else
+                    {
                         topicFlags |= MWBase::DialogueManager::TopicType::Exhausted;
-                    mActorKnownTopics.insert(std::make_pair(dialog.mId, ActorKnownTopicInfo{ topicFlags, answer }));
+                        // The exhausted pass below needs the topics this
+                        // answer links to; extract them now instead of
+                        // keeping the DialInfo pointer alive.
+                        responseTopicRefs = parseTopicIdsFromText(answer->getResponse());
+                    }
+                    mActorKnownTopics.insert(std::make_pair(
+                        dialog.mId, ActorKnownTopicInfo{ topicFlags, std::move(responseTopicRefs) }));
                 }
             }
         }
@@ -384,7 +403,7 @@ namespace MWDialogue
             if (!(topicInfo.mFlags & MWBase::DialogueManager::TopicType::Exhausted) || !mKnownTopics.count(dialogId))
                 continue;
 
-            for (const auto& topicId : parseTopicIdsFromText(topicInfo.mInfo->mResponse))
+            for (const auto& topicId : topicInfo.mResponseTopicRefs)
             {
                 if (mActorKnownTopics.count(topicId) && !mKnownTopics.count(topicId))
                 {
@@ -475,7 +494,7 @@ namespace MWDialogue
                 const auto [responseTopic, info] = filter.search(*dialogue, true);
                 if (info)
                 {
-                    const std::string& text = info->mResponse;
+                    const std::string text = info->getResponse();
                     addTopicsFromText(text);
 
                     mChoice = -1;
@@ -494,7 +513,7 @@ namespace MWDialogue
                             MWBase::Environment::get().getJournal()->addTopic(mLastTopic, info->mId, mActor);
                     }
 
-                    executeScript(info->mResultScript, mActor);
+                    executeScript(info->getResultScript(), mActor);
                 }
                 else
                 {
@@ -605,7 +624,7 @@ namespace MWDialogue
         {
             const ESM::DialInfo* info = infos[0].second;
 
-            addTopicsFromText(info->mResponse);
+            addTopicsFromText(info->getResponse());
 
             const MWWorld::Store<ESM::GameSetting>& gmsts
                 = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>();
@@ -613,10 +632,10 @@ namespace MWDialogue
             MWScript::InterpreterContext interpreterContext(&mActor.getRefData().getLocals(), mActor);
 
             callback->addResponse(gmsts.find("sServiceRefusal")->mValue.getString(),
-                Interpreter::fixDefinesDialog(info->mResponse, interpreterContext));
+                Interpreter::fixDefinesDialog(info->getResponse(), interpreterContext));
             MWBase::Environment::get().getLuaManager()->onDialogueResponse(mActor, *info, dialogue);
 
-            executeScript(info->mResultScript, mActor);
+            executeScript(info->getResultScript(), mActor);
             return true;
         }
         return false;
@@ -653,11 +672,11 @@ namespace MWDialogue
         {
             MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
             if (Settings::gui().mSubtitles)
-                winMgr->messageBox(info->mResponse);
+                winMgr->messageBox(info->getResponse());
             if (!info->mSound.empty())
                 sndMgr->say(actor, Misc::ResourceHelpers::correctSoundPath(VFS::Path::Normalized(info->mSound)));
-            if (!info->mResultScript.empty())
-                executeScript(info->mResultScript, actor);
+            if (info->hasResultScript())
+                executeScript(info->getResultScript(), actor);
             MWBase::Environment::get().getLuaManager()->onDialogueResponse(actor, *info, *dial);
         }
         return info != nullptr;

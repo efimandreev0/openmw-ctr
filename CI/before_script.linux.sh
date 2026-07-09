@@ -2,6 +2,11 @@
 
 set -xeo pipefail
 
+free -m
+
+# Silence a git warning
+git config --global advice.detachedHead false
+
 # setup our basic cmake build options
 declare -a CMAKE_CONF_OPTS=(
     -DCMAKE_C_COMPILER="${CC:-/usr/bin/cc}"
@@ -33,7 +38,7 @@ fi
 
 if [[ $CI_CLANG_TIDY ]]; then
     CMAKE_CONF_OPTS+=(
-        -DCMAKE_CXX_CLANG_TIDY=${CMAKE_CXX_CLANG_TIDY}
+        -DCMAKE_CXX_CLANG_TIDY=clang-tidy-19
         -DBUILD_COMPONENTS_TESTS=ON
         -DBUILD_OPENMW_TESTS=ON
         -DBUILD_OPENCS_TESTS=ON

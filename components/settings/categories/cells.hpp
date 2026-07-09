@@ -33,6 +33,7 @@ namespace Settings
         SettingValue<float> mCacheExpiryDelay{ mIndex, "Cells", "cache expiry delay", makeMaxSanitizerFloat(0) };
         SettingValue<float> mTargetFramerate{ mIndex, "Cells", "target framerate", makeMaxStrictSanitizerFloat(0) };
         SettingValue<int> mPointersCacheSize{ mIndex, "Cells", "pointers cache size", makeClampSanitizerInt(40, 1000) };
+        SettingValue<int> mVitaCellRange{ mIndex, "Cells", "vita cell range", makeClampSanitizerInt(1, 2) };
     };
 }
 

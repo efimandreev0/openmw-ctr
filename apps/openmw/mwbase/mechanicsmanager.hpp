@@ -253,6 +253,8 @@ namespace MWBase
 
         virtual void clear() = 0;
 
+        virtual bool isAggressive(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target) = 0;
+
         /// Resurrects the player if necessary
         virtual void resurrect(const MWWorld::Ptr& ptr) = 0;
 
@@ -306,6 +308,7 @@ namespace MWBase
         virtual int getGreetingTimer(const MWWorld::Ptr& ptr) const = 0;
         virtual float getAngleToPlayer(const MWWorld::Ptr& ptr) const = 0;
         virtual MWMechanics::GreetingState getGreetingState(const MWWorld::Ptr& ptr) const = 0;
+        virtual bool isTurningToPlayer(const MWWorld::Ptr& ptr) const = 0;
         virtual void fastForwardAi() const = 0;
     };
 }

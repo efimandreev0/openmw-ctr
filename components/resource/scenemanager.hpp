@@ -99,13 +99,20 @@ namespace Resource
         /// Re-create shaders for this node, need to call this if alpha testing, texture stages or vertex color mode
         /// have changed.
         void recreateShaders(osg::ref_ptr<osg::Node> node, const std::string& shaderPrefix = "objects",
-            const osg::Program* programTemplate = nullptr);
+            bool forceShadersForNode = false, const osg::Program* programTemplate = nullptr);
 
         /// Applying shaders to a node may replace some fixed-function state.
         /// This restores it.
         /// When editing such state, it should be reinstated before the edits, and shaders should be recreated
         /// afterwards.
         void reinstateRemovedState(osg::ref_ptr<osg::Node> node);
+
+        /// @see ShaderVisitor::setForceShaders
+        void setForceShaders(bool force);
+        bool getForceShaders() const;
+
+        void setClampLighting(bool clamp);
+        bool getClampLighting() const;
 
         /// @see ShaderVisitor::setAutoUseNormalMaps
         void setAutoUseNormalMaps(bool use);
@@ -120,8 +127,10 @@ namespace Resource
 
         void setSpecularMapPattern(const std::string& pattern);
 
-        void setSupportsClusteredLighting(bool supported);
-        bool isClusteredLightingSupported() const;
+        void setApplyLightingToEnvMaps(bool apply);
+
+        void setSupportedLightingMethods(const SceneUtil::LightManager::SupportedMethods& supported);
+        bool isSupportedLightingMethod(SceneUtil::LightingMethod method) const;
 
         void setOpaqueDepthTex(osg::ref_ptr<osg::Texture> texturePing, osg::ref_ptr<osg::Texture> texturePong);
 
@@ -137,6 +146,8 @@ namespace Resource
             LightBuffer,
             PostProcessor
         };
+        void setLightingMethod(SceneUtil::LightingMethod method);
+        SceneUtil::LightingMethod getLightingMethod() const;
 
         void setConvertAlphaTestToAlphaToCoverage(bool convert);
         void setAdjustCoverageForAlphaTest(bool adjustCoverage);
@@ -160,17 +171,18 @@ namespace Resource
 
         /// Clone osg::Node and adjust it according to SceneManager's settings.
         /// @note Thread safe.
-        osg::ref_ptr<osg::Node> getInstance(const osg::Node* base);
+        osg::ref_ptr<osg::Node> getInstance(const osg::Node* base, bool allowParticles = false);
 
         /// Instance the given scene template.
         /// @see getTemplate
         /// @note Thread safe.
-        osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path);
+        osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path, bool allowParticles = false);
 
         /// Instance the given scene template and immediately attach it to a parent node
         /// @see getTemplate
         /// @note Not thread safe, unless parentNode is not part of the main scene graph yet.
-        osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path, osg::Group* parentNode);
+        osg::ref_ptr<osg::Node> getInstance(
+            VFS::Path::NormalizedView path, osg::Group* parentNode, bool allowParticles = false);
 
         /// Attach the given scene instance to the given parent node
         /// @note You should have the parentNode in its intended position before calling this method,
@@ -248,9 +260,13 @@ namespace Resource
         float mMaxAnisotropy;
 
         unsigned int mParticleSystemMask;
-        bool mSupportsClusteredLighting = false;
+        SceneUtil::LightingMethod mLightingMethod;
+        SceneUtil::LightManager::SupportedMethods mSupportedLightingMethods;
+        bool mForceShaders = false;
+        bool mClampLighting = true;
         bool mAutoUseNormalMaps = false;
         bool mAutoUseSpecularMaps = false;
+        bool mApplyLightingToEnvMaps = false;
         bool mConvertAlphaTestToAlphaToCoverage = false;
         bool mAdjustCoverageForAlphaTest = false;
         bool mSupportsNormalsRT = false;

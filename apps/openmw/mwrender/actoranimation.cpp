@@ -76,7 +76,7 @@ namespace MWRender
         osg::ref_ptr<osg::Node> instance = mResourceSystem->getSceneManager()->getInstance(model, parent);
 
         const NodeMap& nodeMap = getNodeMap();
-        NodeMap::const_iterator found = nodeMap.find(bonename);
+        NodeMap::const_iterator found = nodeMap.find(std::string(bonename));
         if (found == nodeMap.end())
             return {};
 
@@ -92,7 +92,7 @@ namespace MWRender
         osg::ref_ptr<const osg::Node> templateNode = mResourceSystem->getSceneManager()->getTemplate(model);
 
         const NodeMap& nodeMap = getNodeMap();
-        auto found = nodeMap.find(bonename);
+        auto found = nodeMap.find(std::string(bonename));
         if (found == nodeMap.end())
             throw std::runtime_error("Can't find attachment node " + std::string{ bonename });
         if (isLight)
@@ -105,7 +105,7 @@ namespace MWRender
             std::move(templateNode), mObjectRoot, bonefilter, found->second, mResourceSystem->getSceneManager());
     }
 
-    VFS::Path::Normalized ActorAnimation::getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const
+    std::string ActorAnimation::getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const
     {
         const ESM::Armor* armor = shield.get<ESM::Armor>()->mBase;
         const std::vector<ESM::PartReference>& bodyparts = armor->mParts.mParts;
@@ -129,9 +129,9 @@ namespace MWRender
                 {
                     const ESM::BodyPart* bodypart = partStore.search(*bodypartName);
                     if (bodypart == nullptr || bodypart->mData.mType != ESM::BodyPart::MT_Armor)
-                        return VFS::Path::Normalized();
-                    if (!bodypart->mModel.getNormalized().empty())
-                        return Misc::ResourceHelpers::correctMeshPath(bodypart->mModel.getNormalized());
+                        return std::string();
+                    if (!bodypart->mModel.empty())
+                        return Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(bodypart->mModel)).value();
                 }
             }
         }

@@ -1,9 +1,10 @@
 #ifndef OPENMW_ESM_LTEX_H
 #define OPENMW_ESM_LTEX_H
 
-#include <components/esm/defs.hpp>
-#include <components/esm/path.hpp>
-#include <components/esm/refid.hpp>
+#include <string>
+
+#include "components/esm/defs.hpp"
+#include "components/esm/refid.hpp"
 
 namespace ESM
 {
@@ -25,9 +26,9 @@ namespace ESM
         /// Return a string descriptor for this record type. Currently used for debugging / error logs only.
         static std::string_view getRecordType() { return "LandTexture"; }
 
+        std::string mTexture;
         RefId mId;
         uint32_t mIndex;
-        Path mTexture;
 
         void load(ESMReader& esm, bool& isDeleted);
         void save(ESMWriter& esm, bool isDeleted = false) const;

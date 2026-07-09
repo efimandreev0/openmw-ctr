@@ -279,6 +279,9 @@ namespace MWGui
     protected:
         void onOkClicked(MyGUI::Widget* sender);
         bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) override;
+#if defined(__vita__) || defined(__3DS__)
+        void onOpen() override;
+#endif
 
     private:
         MyGUI::EditBox* mTextEdit;
@@ -327,6 +330,10 @@ namespace MWGui
         void onDescriptionClicked(MyGUI::Widget* sender);
         void onDescriptionEntered(WindowBase* parWindow);
         void onDialogCancel();
+#if defined(__vita__) || defined(__3DS__)
+        void onOpen() override;
+        void onClassNameClicked(MyGUI::Widget* sender);
+#endif
 
         void setSpecialization(int id);
 

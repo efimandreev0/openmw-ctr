@@ -752,7 +752,7 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            return QString::fromStdString(record.get().mTexture.getOriginal());
+            return QString::fromUtf8(record.get().mTexture.c_str());
         }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override
@@ -1824,7 +1824,7 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            return QString::fromStdString(record.get().mModel.getOriginal());
+            return QString::fromUtf8(record.get().mModel.c_str());
         }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override
@@ -2139,9 +2139,8 @@ namespace CSMWorld
 
         QVariant get(const Record<ESXRecordT>& record) const override
         {
-            return QString::fromStdString(
-                (this->mColumnId == Columns::ColumnId_Icon ? record.get().mIcon : record.get().mParticle)
-                    .getOriginal());
+            return QString::fromUtf8(
+                (this->mColumnId == Columns::ColumnId_Icon ? record.get().mIcon : record.get().mParticle).c_str());
         }
 
         void set(Record<ESXRecordT>& record, const QVariant& data) override

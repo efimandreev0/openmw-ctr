@@ -1,0 +1,196 @@
+/*
+ * Minimal <format> replacement for GCC 10 (PS Vita port)
+ *
+ * GCC 10 doesn't have <format>. This provides:
+ * - std::format() with {} placeholder substitution
+ * - std::vformat_to() / std::make_format_args() for type-erased formatting
+ *
+ * Format specs ({:...}) are NOT interpreted — values are inserted as-is.
+ * This is sufficient for error messages and Morrowind script formatting.
+ */
+#ifndef _OPENMW_VITA_FORMAT_H_
+#define _OPENMW_VITA_FORMAT_H_
+
+// On GCC 13+ the real <format> is available — let it win and skip the stub.
+#if defined(__has_include_next) && __has_include_next(<format>)
+#  include_next <format>
+#endif
+
+#ifndef __cpp_lib_format
+
+#include <string>
+#include <sstream>
+#include <string_view>
+#include <vector>
+#include <iterator>
+
+namespace std
+{
+    // --- Type-erased format arguments ---
+    class format_args
+    {
+    public:
+        format_args() = default;
+        const std::vector<std::string>& values() const { return mValues; }
+        void add(std::string s) { mValues.push_back(std::move(s)); }
+    private:
+        std::vector<std::string> mValues;
+    };
+
+    namespace detail
+    {
+        inline void argsToStrings(format_args&) {}
+
+        template <typename T, typename... Rest>
+        void argsToStrings(format_args& fa, const T& val, const Rest&... rest)
+        {
+            std::ostringstream os;
+            os << val;
+            fa.add(os.str());
+            argsToStrings(fa, rest...);
+        }
+
+        // Find the matching '}' for an opening '{', handling nested {} pairs
+        inline size_t findMatchingBrace(std::string_view fmt, size_t openPos)
+        {
+            int depth = 1;
+            for (size_t i = openPos + 1; i < fmt.size(); ++i)
+            {
+                if (fmt[i] == '{')
+                    ++depth;
+                else if (fmt[i] == '}')
+                {
+                    --depth;
+                    if (depth == 0)
+                        return i;
+                }
+            }
+            return std::string_view::npos;
+        }
+
+        // Count inner {} pairs inside a format spec (these consume extra args)
+        inline size_t countInnerPlaceholders(std::string_view spec)
+        {
+            size_t count = 0;
+            for (size_t i = 0; i + 1 < spec.size(); ++i)
+            {
+                if (spec[i] == '{' && spec[i + 1] == '}')
+                {
+                    ++count;
+                    ++i;
+                }
+            }
+            return count;
+        }
+    }
+
+    template <typename... Args>
+    format_args make_format_args(const Args&... args)
+    {
+        format_args fa;
+        detail::argsToStrings(fa, args...);
+        return fa;
+    }
+
+    // vformat_to: write formatted output to an output iterator
+    template <typename OutputIt>
+    OutputIt vformat_to(OutputIt out, std::string_view fmt, const format_args& args)
+    {
+        size_t argIdx = 0;
+        const auto& vals = args.values();
+        size_t i = 0;
+        while (i < fmt.size())
+        {
+            if (fmt[i] == '{')
+            {
+                if (i + 1 < fmt.size() && fmt[i + 1] == '{')
+                {
+                    // Escaped {{ -> literal {
+                    *out++ = '{';
+                    i += 2;
+                    continue;
+                }
+                size_t close = detail::findMatchingBrace(fmt, i);
+                if (close != std::string_view::npos)
+                {
+                    // Count inner {} for runtime width/precision args
+                    std::string_view inner = fmt.substr(i + 1, close - i - 1);
+                    size_t extraArgs = detail::countInnerPlaceholders(inner);
+
+                    // Output the value arg
+                    if (argIdx < vals.size())
+                    {
+                        const auto& s = vals[argIdx];
+                        for (char c : s)
+                            *out++ = c;
+                    }
+                    argIdx += 1 + extraArgs; // consume value + any runtime width/precision args
+                    i = close + 1;
+                    continue;
+                }
+            }
+            else if (fmt[i] == '}' && i + 1 < fmt.size() && fmt[i + 1] == '}')
+            {
+                // Escaped }} -> literal }
+                *out++ = '}';
+                i += 2;
+                continue;
+            }
+            *out++ = fmt[i++];
+        }
+        return out;
+    }
+
+    // std::format using the same placeholder logic
+    namespace detail
+    {
+        inline void formatImpl(std::ostringstream& os, std::string_view fmt)
+        {
+            os << fmt;
+        }
+
+        template <typename T, typename... Args>
+        void formatImpl(std::ostringstream& os, std::string_view fmt, const T& val, const Args&... args)
+        {
+            // Find first { that isn't {{
+            for (size_t i = 0; i < fmt.size(); ++i)
+            {
+                if (fmt[i] == '{')
+                {
+                    if (i + 1 < fmt.size() && fmt[i + 1] == '{')
+                    {
+                        os << '{';
+                        ++i;
+                        continue;
+                    }
+                    size_t close = findMatchingBrace(fmt, i);
+                    if (close != std::string_view::npos)
+                    {
+                        os << val;
+                        formatImpl(os, fmt.substr(close + 1), args...);
+                        return;
+                    }
+                }
+                else if (fmt[i] == '}' && i + 1 < fmt.size() && fmt[i + 1] == '}')
+                {
+                    os << '}';
+                    ++i;
+                    continue;
+                }
+                os << fmt[i];
+            }
+        }
+    }
+
+    template <typename... Args>
+    std::string format(std::string_view fmt, const Args&... args)
+    {
+        std::ostringstream os;
+        detail::formatImpl(os, fmt, args...);
+        return os.str();
+    }
+}
+
+#endif // !__cpp_lib_format
+
+#endif

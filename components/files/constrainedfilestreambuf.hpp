@@ -24,7 +24,11 @@ namespace Files
         std::size_t mOrigin;
         std::size_t mSize;
         Platform::File::ScopedHandle mFile;
+#if defined(__vita__) || defined(__3DS__)
+        char mBuffer[32768]{ 0 };
+#else
         char mBuffer[8192]{ 0 };
+#endif
     };
 }
 

@@ -645,17 +645,14 @@ namespace NifOsg
 
     void PlanarCollider::operate(osgParticle::Particle* particle, double dt)
     {
-        const osg::Vec3 normal = mPlaneInParticleSpace.getNormal();
-
         // Does the particle in question move towards the collider?
-        float distToPlane = mPlaneInParticleSpace.distance(particle->getPosition());
-        float velDotProduct = particle->getVelocity() * normal;
-        if (distToPlane * velDotProduct >= 0.0f)
+        float velDotProduct = particle->getVelocity() * mPlaneInParticleSpace.getNormal();
+        if (velDotProduct <= 0)
             return;
 
-        // Would it cross the collider?
-        float nextDistToPlane = distToPlane + velDotProduct * static_cast<float>(dt);
-        if (distToPlane * nextDistToPlane > 0.0f)
+        // Does it intersect the collider's plane?
+        osg::BoundingSphere bs(particle->getPosition(), 0.f);
+        if (mPlaneInParticleSpace.intersect(bs) != 1)
             return;
 
         // Is it inside the collider's bounds?
@@ -668,7 +665,7 @@ namespace NifOsg
             return;
 
         // Deflect the particle
-        osg::Vec3 reflectedVelocity = particle->getVelocity() - normal * (2 * velDotProduct);
+        osg::Vec3 reflectedVelocity = particle->getVelocity() - mPlaneInParticleSpace.getNormal() * (2 * velDotProduct);
         reflectedVelocity *= mBounceFactor;
         particle->setVelocity(reflectedVelocity);
     }

@@ -62,18 +62,6 @@ namespace MWMechanics
         mTargetActor = escort->mTargetActor;
     }
 
-    namespace
-    {
-        bool isInEscortRange(const MWWorld::Ptr& follower, const MWWorld::Ptr& actor, float maxDist)
-        {
-            if (follower.isEmpty())
-                return false;
-            const osg::Vec3f leaderPos = actor.getRefData().getPosition().asVec3();
-            const osg::Vec3f followerPos = follower.getRefData().getPosition().asVec3();
-            return (leaderPos - followerPos).length2() <= maxDist * maxDist;
-        }
-    }
-
     bool AiEscort::execute(
         const MWWorld::Ptr& actor, CharacterController& characterController, AiState& state, float duration)
     {
@@ -96,10 +84,13 @@ namespace MWMechanics
         actor.getClass().getCreatureStats(actor).setDrawState(DrawState::Nothing);
         actor.getClass().getCreatureStats(actor).setMovementFlag(CreatureStats::Flag_Run, false);
 
+        const MWWorld::Ptr follower = MWBase::Environment::get().getWorld()->getPtr(mTargetActorRefId, false);
+        const osg::Vec3f leaderPos = actor.getRefData().getPosition().asVec3();
+        const osg::Vec3f followerPos = follower.getRefData().getPosition().asVec3();
         const osg::Vec3f halfExtents = MWBase::Environment::get().getWorld()->getHalfExtents(actor);
         const float maxHalfExtent = std::max(halfExtents.x(), std::max(halfExtents.y(), halfExtents.z()));
 
-        if (isInEscortRange(getTarget(), actor, mMaxDist))
+        if ((leaderPos - followerPos).length2() <= mMaxDist * mMaxDist)
         {
             // TESCS allows the creation of Escort packages without a specific destination
             constexpr float nowhere = std::numeric_limits<float>::max();

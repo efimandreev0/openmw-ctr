@@ -2,7 +2,9 @@
 
 #include <charconv>
 #include <cmath>
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#endif
 #include <limits>
 #include <regex>
 #include <stdexcept>
@@ -272,8 +274,13 @@ namespace LuaUtil
         [[noreturn]] void nodeError(const YAML::Node& node, const std::string& message)
         {
             const auto& mark = node.Mark();
+#if defined(__vita__) || defined(__3DS__)
+            std::string error = " at line=" + std::to_string(mark.line + 1) + " column="
+                + std::to_string(mark.column + 1) + " position=" + std::to_string(mark.pos + 1);
+#else
             std::string error
                 = std::format(" at line={} column={} position={}", mark.line + 1, mark.column + 1, mark.pos + 1);
+#endif
             throw std::runtime_error(message + error);
         }
     }

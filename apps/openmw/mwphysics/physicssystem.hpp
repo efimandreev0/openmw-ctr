@@ -226,6 +226,14 @@ namespace MWPhysics
 
         bool canMoveToWaterSurface(const MWWorld::ConstPtr& actor, const float waterlevel);
 
+        // Block until any in-flight async physics worker step completes.
+        // After return the collision world has no concurrent readers until
+        // the next applyQueuedMovements() — call this before a batch of
+        // destructive operations (e.g. cell unload's removeCollisionObject
+        // calls) so the worker can't be mid-broadphase-iteration when an
+        // object disappears.
+        void waitForAsyncWorkers();
+
         /// Get physical half extents (scaled) of the given actor.
         osg::Vec3f getHalfExtents(const MWWorld::ConstPtr& actor) const;
 

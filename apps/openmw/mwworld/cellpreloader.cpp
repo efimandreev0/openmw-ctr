@@ -8,6 +8,7 @@
 #include <osg/Stats>
 
 #include <components/debug/debuglog.hpp>
+#include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
 #include <components/loadinglistener/reporter.hpp>
 #include <components/misc/constants.hpp>
@@ -236,7 +237,7 @@ namespace MWWorld
         clearAllTasks();
     }
 
-    void CellPreloader::preload(CellStore& cell, double timestamp)
+    void CellPreloader::preload(CellStore& cell, double timestamp, bool urgent)
     {
         if (!mWorkQueue)
         {
@@ -259,6 +260,29 @@ namespace MWWorld
 
         while (mPreloadCells.size() >= mMaxCacheSize)
         {
+#if defined(__vita__) || defined(__3DS__)
+            if (urgent && mHasPlayerContext)
+            {
+                PreloadMap::iterator furthest = mPreloadCells.end();
+                float furthestDistSq = -1.0f;
+                for (PreloadMap::iterator it = mPreloadCells.begin(); it != mPreloadCells.end(); ++it)
+                {
+                    float d = getCellDistanceSq(it->first);
+                    if (d > furthestDistSq)
+                    {
+                        furthestDistSq = d;
+                        furthest = it;
+                    }
+                }
+                if (furthest != mPreloadCells.end())
+                {
+                    furthest->second.mWorkItem->abort();
+                    mPreloadCells.erase(furthest);
+                    ++mEvicted;
+                    continue;
+                }
+            }
+#endif
             // throw out oldest cell to make room
             PreloadMap::iterator oldestCell = mPreloadCells.begin();
             double oldestTimestamp = std::numeric_limits<double>::max();
@@ -324,7 +348,14 @@ namespace MWWorld
     {
         for (PreloadMap::iterator it = mPreloadCells.begin(); it != mPreloadCells.end();)
         {
-            if (mPreloadCells.size() >= mMinCacheSize && it->second.mTimeStamp < timestamp - mExpiryDelay)
+#if defined(__vita__) || defined(__3DS__)
+            double expiryDelay = mExpiryDelay;
+            if (isRearHemisphere(it->first))
+                expiryDelay *= 0.4;
+#else
+            const double expiryDelay = mExpiryDelay;
+#endif
+            if (mPreloadCells.size() >= mMinCacheSize && it->second.mTimeStamp < timestamp - expiryDelay)
             {
                 if (it->second.mWorkItem)
                 {
@@ -464,4 +495,41 @@ namespace MWWorld
         stats.setAttribute(frameNumber, "CellPreloader Loaded", static_cast<double>(mLoaded));
         stats.setAttribute(frameNumber, "CellPreloader Expired", static_cast<double>(mExpired));
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    void CellPreloader::setPlayerContext(const osg::Vec3f& pos, const osg::Vec3f& forwardDir)
+    {
+        mPlayerPos = pos;
+        mForwardDir = forwardDir;
+        mHasPlayerContext = true;
+    }
+
+    float CellPreloader::getCellDistanceSq(const MWWorld::CellStore* cell) const
+    {
+        if (!cell || !cell->isExterior())
+            return 0.0f;
+        const osg::Vec2f c = ESM::indexToPosition(cell->getCell()->getExteriorCellLocation(), true);
+        const float dx = c.x() - mPlayerPos.x();
+        const float dy = c.y() - mPlayerPos.y();
+        return dx * dx + dy * dy;
+    }
+
+    bool CellPreloader::isRearHemisphere(const MWWorld::CellStore* cell) const
+    {
+        if (!mHasPlayerContext || !cell || !cell->isExterior())
+            return false;
+        // Smoothed-dir magnitude doubles as a stability gate: low means the player is wandering.
+        const float dirMag = mForwardDir.length();
+        if (dirMag < 0.5f)
+            return false;
+        const osg::Vec2f c = ESM::indexToPosition(cell->getCell()->getExteriorCellLocation(), true);
+        const float vx = c.x() - mPlayerPos.x();
+        const float vy = c.y() - mPlayerPos.y();
+        const float toCellLen = std::sqrt(vx * vx + vy * vy);
+        if (toCellLen < 1e-3f)
+            return false;
+        const float cosAngle = (vx * mForwardDir.x() + vy * mForwardDir.y()) / (toCellLen * dirMag);
+        return cosAngle < -0.3f;
+    }
+#endif
 }

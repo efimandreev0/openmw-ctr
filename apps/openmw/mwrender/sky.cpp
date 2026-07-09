@@ -27,6 +27,10 @@
 
 #include <components/nifosg/particle.hpp>
 
+#if defined(__vita__) || defined(__3DS__)
+#include <osg/Uniform>
+#endif
+
 #include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/weather.hpp"
 
@@ -258,13 +262,39 @@ namespace MWRender
         , mWindSpeed(0.f)
         , mBaseWindSpeed(0.f)
         , mEnabled(true)
+#if defined(__vita__) || defined(__3DS__)
+        // Sun glare needs the OcclusionQueryNode pipeline, which on vitaGL requires
+        // a GXM scene break + CPU-side pixel readback every frame.
+        , mSunglareEnabled(false)
+#else
         , mSunglareEnabled(true)
+#endif
         , mPrecipitationAlpha(0.f)
         , mDirtyParticlesEffect(false)
     {
         mSkyRootNode = new CameraRelativeTransform;
         mSkyRootNode->setName("Sky Root");
+        // Assign empty program to specify we don't want shaders when we are rendering in FFP pipeline
+#if !defined(__vita__) && !defined(__3DS__)
+        // On Vita, an empty osg::Program puts vitaGL into custom shader mode, causing crashes.
+        if (!mSceneManager->getForceShaders())
+            mSkyRootNode->getOrCreateStateSet()->setAttributeAndModes(new osg::Program(),
+                osg::StateAttribute::OVERRIDE | osg::StateAttribute::PROTECTED | osg::StateAttribute::ON);
+#endif
         mSceneManager->setUpNormalsRTForStateSet(mSkyRootNode->getOrCreateStateSet(), false);
+#if defined(__vita__) || defined(__3DS__)
+        // VitaLit always computes fog, but sky should be unfogged.
+        mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogStart", 0.f));
+        mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogEnd", 1000000.f));
+        // Sky uses emission for color (vertex colors = sky color, unlit).
+        // Override colorMode to 1 (EMISSION) so VitaLit treats vertex colors
+        // as emission instead of diffuse (which would apply NdotL lighting).
+        mSkyRootNode->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("colorMode", 1), osg::StateAttribute::OVERRIDE);
+        // Tint sky toward u_fogColor near horizon so it smoothly meets fog-shrouded terrain.
+        mSkyRootNode->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("u_skyHorizonBlend", 1.f), osg::StateAttribute::OVERRIDE);
+#endif
         SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*mSkyRootNode->getOrCreateStateSet());
         parentNode->addChild(mSkyRootNode);
 
@@ -295,6 +325,8 @@ namespace MWRender
     {
         assert(!mCreated);
 
+        bool forceShaders = mSceneManager->getForceShaders();
+
         mAtmosphereDay = mSceneManager->getInstance(Settings::models().mSkyatmosphere.get(), mEarlyRenderBinRoot);
         ModVertexAlphaVisitor modAtmosphere(ModVertexAlphaVisitor::Atmosphere);
         mAtmosphereDay->accept(modAtmosphere);
@@ -316,7 +348,7 @@ namespace MWRender
 
         ModVertexAlphaVisitor modStars(ModVertexAlphaVisitor::Stars);
         atmosphereNight->accept(modStars);
-        mAtmosphereNightUpdater = new AtmosphereNightUpdater(mSceneManager->getImageManager());
+        mAtmosphereNightUpdater = new AtmosphereNightUpdater(mSceneManager->getImageManager(), forceShaders);
         atmosphereNight->addUpdateCallback(mAtmosphereNightUpdater);
 
         mSun = std::make_unique<Sun>(mEarlyRenderBinRoot, *mSceneManager);
@@ -332,7 +364,7 @@ namespace MWRender
         mCloudMesh = new osg::PositionAttitudeTransform;
         osg::ref_ptr<osg::Node> cloudMeshChild
             = mSceneManager->getInstance(Settings::models().mSkyclouds.get(), mCloudMesh);
-        mCloudUpdater = new CloudUpdater();
+        mCloudUpdater = new CloudUpdater(forceShaders);
         mCloudUpdater->setOpacity(1.f);
         cloudMeshChild->addUpdateCallback(mCloudUpdater);
         mCloudMesh->addChild(cloudMeshChild);
@@ -340,7 +372,7 @@ namespace MWRender
         mNextCloudMesh = new osg::PositionAttitudeTransform;
         osg::ref_ptr<osg::Node> nextCloudMeshChild
             = mSceneManager->getInstance(Settings::models().mSkyclouds.get(), mNextCloudMesh);
-        mNextCloudUpdater = new CloudUpdater();
+        mNextCloudUpdater = new CloudUpdater(forceShaders);
         mNextCloudUpdater->setOpacity(0.f);
         nextCloudMeshChild->addUpdateCallback(mNextCloudUpdater);
         mNextCloudMesh->setNodeMask(0);
@@ -353,12 +385,15 @@ namespace MWRender
         mCloudMesh->accept(modClouds);
         mNextCloudMesh->accept(modClouds);
 
-        Shader::ShaderManager::DefineMap defines = {};
-        Stereo::shaderStereoDefines(defines);
-        auto program = mSceneManager->getShaderManager().getProgram("sky", defines);
-        mEarlyRenderBinRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("pass", -1));
-        mEarlyRenderBinRoot->getOrCreateStateSet()->setAttributeAndModes(
-            program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        if (mSceneManager->getForceShaders())
+        {
+            Shader::ShaderManager::DefineMap defines = {};
+            Stereo::shaderStereoDefines(defines);
+            auto program = mSceneManager->getShaderManager().getProgram("sky", defines);
+            mEarlyRenderBinRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("pass", -1));
+            mEarlyRenderBinRoot->getOrCreateStateSet()->setAttributeAndModes(
+                program, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        }
 
         osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
         depth->setWriteMask(false);
@@ -382,9 +417,8 @@ namespace MWRender
         osg::Vec3 rainRange = osg::Vec3(mRainDiameter, mRainDiameter, (mRainMinHeight + mRainMaxHeight) / 2.f);
 
         mRainParticleSystem->setParticleAlignment(osgParticle::ParticleSystem::FIXED);
-        // Vertical placement with some horizontal compression.
-        // Z-down alignment is used so that the UV uses Y-down convention
-        mRainParticleSystem->setAlignVectors(osg::Vec3f(0.1f, 0, 0), osg::Vec3f(0, 0, -1.f));
+        mRainParticleSystem->setAlignVectorX(osg::Vec3f(0.1f, 0, 0));
+        mRainParticleSystem->setAlignVectorY(osg::Vec3f(0, 0, 1));
 
         osg::ref_ptr<osg::StateSet> stateset = mRainParticleSystem->getOrCreateStateSet();
 
@@ -426,7 +460,13 @@ namespace MWRender
         // (near 1-2). Since the rain is a regular geometry, it produces water ripples, also in theory it can be removed
         // if collides with something.
         osg::ref_ptr<RainCounter> counter = new RainCounter;
+#if defined(__vita__) || defined(__3DS__)
+        // Vita: reduce rain spawn rate (~60% fewer drops) to stop storms tanking
+        // fps from particle overdraw. Storm is still visibly raining, just thinner.
+        counter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 8);
+#else
         counter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+#endif
         emitter->setCounter(counter);
         mCounter = counter;
 
@@ -615,7 +655,11 @@ namespace MWRender
             mPlacer->setYRange(-rainRange.y() / 2, rainRange.y() / 2);
             mPlacer->setZRange(-rainRange.z() / 2, rainRange.z() / 2);
 
+#if defined(__vita__) || defined(__3DS__)
+            mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 8);
+#else
             mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+#endif
             mPrecipitationOccluder->updateRange(rainRange);
         }
     }
@@ -791,9 +835,17 @@ namespace MWRender
         {
             mCloudBlendFactor = std::clamp(weather.mCloudBlendFactor, 0.f, 1.f);
 
-            mCloudUpdater->setOpacity(1.f - mCloudBlendFactor);
+            const float curOpacity = 1.f - mCloudBlendFactor;
+            mCloudUpdater->setOpacity(curOpacity);
             mNextCloudUpdater->setOpacity(mCloudBlendFactor);
+#if defined(__vita__) || defined(__3DS__)
+            // A full-sky alpha-blended quad at near-zero opacity costs ~470k
+            // blended fragments per frame for visually nothing — skip the draw.
+            mCloudMesh->setNodeMask(curOpacity > 0.02f ? ~0u : 0);
+            mNextCloudMesh->setNodeMask(mCloudBlendFactor > 0.02f ? ~0u : 0);
+#else
             mNextCloudMesh->setNodeMask(mCloudBlendFactor > 0.f ? ~0u : 0);
+#endif
         }
 
         if (mCloudColour != weather.mFogColor)
@@ -814,6 +866,12 @@ namespace MWRender
             mAtmosphereUpdater->setEmissionColor(mSkyColour);
             mMasser->setAtmosphereColor(mSkyColour);
             mSecunda->setAtmosphereColor(mSkyColour);
+#if defined(__vita__) || defined(__3DS__)
+            // Same logic as the cloud opacity gate: a near-transparent
+            // full-sky alpha-blended quad costs ~470k blended fragments and
+            // contributes nothing visible — skip the draw.
+            mAtmosphereDay->setNodeMask(mSkyColour.a() > 0.02f ? ~0u : 0);
+#endif
         }
 
         if (mFogColour != weather.mFogColor)

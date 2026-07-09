@@ -1,5 +1,9 @@
 #include "controllermanager.hpp"
 
+#ifdef __3DS__
+#include "../vita/VitaInit.h"
+#endif
+
 #include <MyGUI_Button.h>
 #include <MyGUI_InputManager.h>
 
@@ -33,8 +37,6 @@ namespace MWInput
         , mGuiCursorEnabled(true)
         , mJoystickLastUsed(false)
         , mGamepadMousePressed(false)
-        , mLeftTriggerGuiPressed(false)
-        , mRightTriggerGuiPressed(false)
     {
         if (!controllerBindingsFile.empty())
         {
@@ -86,28 +88,59 @@ namespace MWInput
 
     void ControllerManager::update(float dt)
     {
-        if (mGuiCursorEnabled && !(mJoystickLastUsed && !mGamepadGuiCursorEnabled))
+        if (mGuiCursorEnabled)
         {
-            float xAxis = mBindingsManager->getActionValue(A_MoveLeftRight) * 2.0f - 1.0f;
-            float yAxis = mBindingsManager->getActionValue(A_MoveForwardBackward) * 2.0f - 1.0f;
-            float zAxis = mBindingsManager->getActionValue(A_LookUpDown) * 2.0f - 1.0f;
+            MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+            // Cursor movement from the left stick is only allowed when the
+            // current window permits a gamepad-driven cursor.
+            const bool allowCursorMove = !(mJoystickLastUsed && !mGamepadGuiCursorEnabled);
+            // Wheel events should still fire whenever a cursor is visible — even
+            // in windows that disable gamepad cursor (e.g. dialogue), the user
+            // may have summoned the cursor via touch / left-stick on a window
+            // that does allow it, or via an external mouse. Without this,
+            // hovering a sibling scrollable and right-stick'ing does nothing.
+            const bool allowWheel = allowCursorMove || winMgr->getCursorVisible();
 
-            xAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
-            yAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
-
-            // We keep track of our own mouse position, so that moving the mouse while in
-            // game mode does not move the position of the GUI cursor
-            float uiScale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
-            const float gamepadCursorSpeed = Settings::input().mGamepadCursorSpeed;
-            const float xMove = xAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
-            const float yMove = yAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
-
-            float mouseWheelMove = -zAxis * dt * 1500.0f;
-            if (xMove != 0 || yMove != 0 || mouseWheelMove != 0)
+            if (allowCursorMove || allowWheel)
             {
-                mMouseManager->injectMouseMove(xMove, yMove, mouseWheelMove);
-                mMouseManager->warpMouse();
-                MWBase::Environment::get().getWindowManager()->setCursorActive(true);
+                float xAxis = mBindingsManager->getActionValue(A_MoveLeftRight) * 2.0f - 1.0f;
+                float yAxis = mBindingsManager->getActionValue(A_MoveForwardBackward) * 2.0f - 1.0f;
+                float zAxis = mBindingsManager->getActionValue(A_LookUpDown) * 2.0f - 1.0f;
+
+                float xMove = 0.f;
+                float yMove = 0.f;
+                if (allowCursorMove)
+                {
+                    xAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
+                    yAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
+                    const float uiScale = winMgr->getScalingFactor();
+                    const float gamepadCursorSpeed = Settings::input().mGamepadCursorSpeed;
+                    xMove = xAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
+                    yMove = yAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
+                }
+
+                float mouseWheelMove = 0.f;
+                if (allowWheel)
+                {
+#if defined(__vita__) || defined(__3DS__)
+                    mouseWheelMove = -zAxis * dt * 300.0f;
+#else
+                    mouseWheelMove = -zAxis * dt * 1500.0f;
+#endif
+                }
+
+                if (xMove != 0 || yMove != 0 || mouseWheelMove != 0)
+                {
+                    mMouseManager->injectMouseMove(xMove, yMove, mouseWheelMove);
+                    // Only re-warp the OS cursor when the cursor actually moved.
+                    // Wheel-only frames (right-stick scrolling) shouldn't warp; SDL's
+                    // WarpMouse can emit a synthetic SDL_MOUSEMOTION event that
+                    // makes MyGUI re-evaluate the mouse-focus widget, causing the
+                    // scroll target to flip between sibling scrollables.
+                    if (xMove != 0 || yMove != 0)
+                        mMouseManager->warpMouse();
+                    winMgr->setCursorActive(true);
+                }
             }
         }
 
@@ -132,6 +165,23 @@ namespace MWInput
 
         MWBase::Environment::get().getLuaManager()->inputEvent(
             { MWBase::LuaManager::InputEvent::ControllerPressed, arg.button });
+
+#if defined(__vita__) || defined(__3DS__)
+        // Select+Start combo: toggle console
+        if (arg.button == SDL_CONTROLLER_BUTTON_BACK) // Select
+        {
+            mSelectHeld = true;
+            mSelectUsedAsModifier = false;
+            return; // Defer Journal action until release
+        }
+        if (arg.button == SDL_CONTROLLER_BUTTON_START && mSelectHeld)
+        {
+            mSelectUsedAsModifier = true;
+            if (!MyGUI::InputManager::getInstance().isModalAny())
+                MWBase::Environment::get().getWindowManager()->toggleConsole();
+            return;
+        }
+#endif
 
         mJoystickLastUsed = true;
         if (MWBase::Environment::get().getWindowManager()->isGuiMode())
@@ -184,6 +234,23 @@ namespace MWInput
                 { MWBase::LuaManager::InputEvent::ControllerReleased, arg.button });
         }
 
+#if defined(__vita__) || defined(__3DS__)
+        if (arg.button == SDL_CONTROLLER_BUTTON_BACK) // Select released
+        {
+            bool wasModifier = mSelectUsedAsModifier;
+            mSelectHeld = false;
+            mSelectUsedAsModifier = false;
+            if (!wasModifier && Settings::input().mEnableController
+                && !MWBase::Environment::get().getInputManager()->controlsDisabled())
+            {
+                // Select tapped alone — fire Journal
+                mBindingsManager->controllerButtonPressed(deviceID, arg);
+                mBindingsManager->controllerButtonReleased(deviceID, arg);
+            }
+            return;
+        }
+#endif
+
         if (!Settings::input().mEnableController || MWBase::Environment::get().getInputManager()->controlsDisabled())
             return;
 
@@ -217,6 +284,28 @@ namespace MWInput
 
     void ControllerManager::axisMoved(int deviceID, const SDL_ControllerAxisEvent& arg)
     {
+#ifdef __3DS__
+        // The native HID bridge synthesizes axis EVENTS, but Lua movement
+        // polls SDL_GameControllerGetAxis — driver state the n3ds backend
+        // never fills. Mirror every event into mCtrAxisMirror so
+        // getAxisValue() below sees the real stick.
+        if (arg.axis < SDL_CONTROLLER_AXIS_MAX)
+            mCtrAxisMirror[arg.axis] = arg.value / 32768.f;
+        // Chain diagnosis: first arrivals of a moving LEFTY with gate states.
+        if (arg.axis == SDL_CONTROLLER_AXIS_LEFTY && arg.value != 0)
+        {
+            static int s_leftyArrive = 0;
+            if (++s_leftyArrive <= 12)
+            {
+                char b[112];
+                snprintf(b, sizeof(b), "[Input] axisMoved LEFTY=%d gui=%d dis=%d en=%d", (int)arg.value,
+                    (int)MWBase::Environment::get().getWindowManager()->isGuiMode(),
+                    (int)MWBase::Environment::get().getInputManager()->controlsDisabled(),
+                    (int)Settings::input().mEnableController);
+                Vita::breadcrumb(b);
+            }
+        }
+#endif
         if (mBindingsManager->isDetectingBindingState())
         {
             mBindingsManager->controllerAxisMoved(deviceID, arg);
@@ -258,13 +347,16 @@ namespace MWInput
 
         if (Settings::gui().mControllerMenus)
         {
-            // Update cursor state.
-            bool treatAsMouse = winMgr->getCursorVisible();
-            winMgr->setCursorActive(false);
-
+            // Decide the role of this press before touching cursor state. If A is
+            // going to fall through as a left-click, keep the cursor visible — the
+            // user is in cursor-driven mode. Any other button means the user is
+            // using menu navigation, so hide the cursor.
+            const bool cursorVisible = winMgr->getCursorVisible();
             MWGui::WindowBase* topWin = winMgr->getActiveControllerWindow();
+
             if (topWin && topWin->isVisible())
             {
+                bool treatAsMouse = cursorVisible;
                 // When the inventory tooltip is visible, we don't actually want the A button to
                 // act like a mouse button; it should act normally.
                 if (treatAsMouse && arg.button == SDL_CONTROLLER_BUTTON_A && winMgr->getControllerTooltipVisible())
@@ -272,12 +364,19 @@ namespace MWInput
 
                 mGamepadGuiCursorEnabled = topWin->isGamepadCursorAllowed();
 
-                // Fall through to mouse click
+                // Fall through to mouse click — leave cursor active for the next press.
                 if (mGamepadGuiCursorEnabled && treatAsMouse && arg.button == SDL_CONTROLLER_BUTTON_A)
                     return false;
 
+                // Switching to menu navigation; hide the cursor.
+                winMgr->setCursorActive(false);
+
                 if (topWin->onControllerButtonEvent(arg))
                     return true;
+            }
+            else
+            {
+                winMgr->setCursorActive(false);
             }
         }
 
@@ -342,22 +441,6 @@ namespace MWInput
 
     bool ControllerManager::gamepadToGuiControl(const SDL_ControllerAxisEvent& arg)
     {
-        const int triggerPressThreshold = Settings::gui().mControllerTriggerPressThreshold;
-        const int rawTriggerReleaseThreshold = Settings::gui().mControllerTriggerReleaseThreshold;
-        const int triggerReleaseThreshold = std::clamp(rawTriggerReleaseThreshold, 0, triggerPressThreshold - 1);
-
-        auto handleTriggerPress = [&](Sint16 value, bool& triggerGuiPressed, const auto& onPress) {
-            if (value >= triggerPressThreshold && !triggerGuiPressed)
-            {
-                onPress();
-                triggerGuiPressed = true;
-            }
-            else if (value <= triggerReleaseThreshold)
-            {
-                triggerGuiPressed = false;
-            }
-        };
-
         MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
 
         if (Settings::gui().mControllerMenus)
@@ -365,23 +448,30 @@ namespace MWInput
             // Left and right triggers toggle through open GUI windows.
             if (arg.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)
             {
-                handleTriggerPress(
-                    arg.value, mRightTriggerGuiPressed, [&] { winMgr->cycleActiveControllerWindow(true); });
+                if (arg.value == 32767) // Treat like a button.
+                    winMgr->cycleActiveControllerWindow(true);
                 return true;
             }
             else if (arg.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT)
             {
-                handleTriggerPress(
-                    arg.value, mLeftTriggerGuiPressed, [&] { winMgr->cycleActiveControllerWindow(false); });
+                if (arg.value == 32767) // Treat like a button.
+                    winMgr->cycleActiveControllerWindow(false);
                 return true;
             }
 
             MWGui::WindowBase* topWin = winMgr->getActiveControllerWindow();
             if (topWin && topWin->isVisible())
             {
-                // Update cursor state
+                // Update cursor state. Only hide the cursor for cursor-driving
+                // (left-stick) input — right-stick events are scroll-only and
+                // shouldn't yank a touch- or left-stick-summoned cursor away
+                // mid-scroll. Without this guard, dialogue (which sets
+                // mDisableGamepadCursor=true) hides the cursor on every right-stick
+                // tick and the scroll target can flip between sibling scrollables.
                 mGamepadGuiCursorEnabled = topWin->isGamepadCursorAllowed();
-                if (!mGamepadGuiCursorEnabled)
+                const bool isCursorStick = (arg.axis == SDL_CONTROLLER_AXIS_LEFTX
+                                            || arg.axis == SDL_CONTROLLER_AXIS_LEFTY);
+                if (!mGamepadGuiCursorEnabled && isCursorStick)
                     winMgr->setCursorActive(false);
 
                 // Deadzone check
@@ -392,13 +482,27 @@ namespace MWInput
                     && (arg.axis == SDL_CONTROLLER_AXIS_LEFTX || arg.axis == SDL_CONTROLLER_AXIS_LEFTY))
                 {
                     // Treat the left stick like a cursor, which is the default behavior.
-                    winMgr->setControllerTooltipVisible(false);
-                    winMgr->setCursorVisible(true);
+                    if (winMgr->getControllerTooltipVisible())
+                    {
+                        winMgr->setControllerTooltipVisible(false);
+                        winMgr->setCursorVisible(true);
+                    }
+                    else if (mGamepadGuiCursorEnabled)
+                    {
+                        winMgr->setCursorVisible(true);
+                    }
                     return false;
                 }
 
-                // Some windows have a specific widget to scroll with the right stick. Move the mouse there.
-                if (arg.axis == SDL_CONTROLLER_AXIS_RIGHTY && topWin->getControllerScrollWidget() != nullptr)
+                // Some windows have a specific widget to scroll with the right stick.
+                // Only auto-warp the cursor to that widget in controller-only mode —
+                // when the cursor is already visible (mouse-driven), scrolling should
+                // target whatever's under the cursor via the wheel-injection path in
+                // update(). Otherwise users hovering a sibling scrollable (e.g. the
+                // dialogue topics list) would have the cursor yanked away to the
+                // designated widget on every right-stick tick.
+                if (arg.axis == SDL_CONTROLLER_AXIS_RIGHTY && topWin->getControllerScrollWidget() != nullptr
+                    && !winMgr->getCursorVisible())
                 {
                     mMouseManager->warpMouseToWidget(topWin->getControllerScrollWidget());
                     winMgr->setCursorVisible(false);
@@ -420,12 +524,12 @@ namespace MWInput
         switch (arg.axis)
         {
             case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
-                handleTriggerPress(arg.value, mRightTriggerGuiPressed,
-                    [&] { winMgr->injectKeyPress(MyGUI::KeyCode::Minus, 0, false); });
+                if (arg.value == 32767) // Treat like a button.
+                    winMgr->injectKeyPress(MyGUI::KeyCode::Minus, 0, false);
                 break;
             case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
-                handleTriggerPress(arg.value, mLeftTriggerGuiPressed,
-                    [&] { winMgr->injectKeyPress(MyGUI::KeyCode::Equals, 0, false); });
+                if (arg.value == 32767) // Treat like a button.
+                    winMgr->injectKeyPress(MyGUI::KeyCode::Equals, 0, false);
                 break;
             case SDL_CONTROLLER_AXIS_LEFTX:
             case SDL_CONTROLLER_AXIS_LEFTY:
@@ -444,11 +548,19 @@ namespace MWInput
 
     float ControllerManager::getAxisValue(SDL_GameControllerAxis axis) const
     {
+#ifdef __3DS__
+        // Axis state mirrored from the HID-bridge events (see axisMoved):
+        // SDL_GameControllerGetAxis polls the n3ds driver, which reports 0.
+        if (axis >= 0 && axis < SDL_CONTROLLER_AXIS_MAX)
+            return mCtrAxisMirror[axis];
+        return 0;
+#else
         SDL_GameController* cntrl = mBindingsManager->getControllerOrNull();
         constexpr float axisMaxAbsoluteValue = 32768;
         if (cntrl != nullptr)
             return SDL_GameControllerGetAxis(cntrl, axis) / axisMaxAbsoluteValue;
         return 0;
+#endif
     }
 
     bool ControllerManager::isButtonPressed(SDL_GameControllerButton button) const
@@ -507,8 +619,12 @@ namespace MWInput
         int controllerType = ControllerManager::getControllerType();
 
         bool isXbox = controllerType == SDL_CONTROLLER_TYPE_XBOX360 || controllerType == SDL_CONTROLLER_TYPE_XBOXONE;
+#if defined(__vita__) || defined(__3DS__)
+        bool isPsx = true;
+#else
         bool isPsx = controllerType == SDL_CONTROLLER_TYPE_PS3 || controllerType == SDL_CONTROLLER_TYPE_PS4
             || controllerType == SDL_CONTROLLER_TYPE_PS5;
+#endif
         bool isSwitch = controllerType == SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO;
 
         switch (button)

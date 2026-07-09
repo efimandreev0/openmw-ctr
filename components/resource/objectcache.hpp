@@ -94,6 +94,38 @@ namespace Resource
 
                     return true;
                 });
+
+#ifdef __3DS__
+                // Hard entry cap: the time-based pass above keeps the union of
+                // everything touched in the last `expiryDelay` seconds, which
+                // spikes during a cell load. Bound it: if we still hold more
+                // than CAP entries, evict the least-recently-used ones that are
+                // NOT externally referenced (refcount==1 — only the cache holds
+                // them). Actively-used templates (refcount>1) are never touched,
+                // so this only accelerates what expiry would do anyway.
+                constexpr std::size_t kCtrCacheCap = 384;
+                if (mItems.size() > kCtrCacheCap)
+                {
+                    std::vector<typename std::remove_reference_t<decltype(mItems)>::iterator> evictable;
+                    evictable.reserve(mItems.size());
+                    for (auto it = mItems.begin(); it != mItems.end(); ++it)
+                        if (it->second.mValue != nullptr && it->second.mValue->referenceCount() <= 1)
+                            evictable.push_back(it);
+                    const std::size_t target = mItems.size() - kCtrCacheCap;
+                    if (evictable.size() > 0)
+                    {
+                        const std::size_t toEvict = std::min(target, evictable.size());
+                        std::partial_sort(evictable.begin(), evictable.begin() + toEvict, evictable.end(),
+                            [](const auto& a, const auto& b) { return a->second.mLastUsage < b->second.mLastUsage; });
+                        for (std::size_t i = 0; i < toEvict; ++i)
+                        {
+                            objectsToRemove.push_back(std::move(evictable[i]->second.mValue));
+                            mItems.erase(evictable[i]);
+                            ++mExpired;
+                        }
+                    }
+                }
+#endif
             }
             // remove expired items from cache
             objectsToRemove.clear();

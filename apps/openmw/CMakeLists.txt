@@ -3,6 +3,23 @@ set(OPENMW_SOURCES
     options.cpp
 )
 
+if(VITA)
+    list(APPEND OPENMW_SOURCES
+        vita/VitaInit.cpp
+        vita/VitaIme.cpp
+    )
+endif()
+
+if(CTR)
+    list(APPEND OPENMW_SOURCES
+        ctr/CtrInit.cpp
+        ctr/CtrHidInput.cpp
+        ctr/CtrIme.cpp
+        ctr/CtrThreads.cpp
+        ctr/ctr_dlmalloc.c
+    )
+endif()
+
 set(OPENMW_RESOURCES
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.rc
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.exe.manifest
@@ -48,7 +65,7 @@ add_openmw_dir (mwgui
     )
 
 add_openmw_dir (mwdialogue
-    dialoguemanagerimp journalimp journalentry quest topic filter selectwrapper keywordsearch scripttest
+    dialoguemanagerimp journalimp journalentry quest topic filter selectwrapper hypertextparser keywordsearch scripttest
     )
 
 add_openmw_dir (mwscript
@@ -59,19 +76,19 @@ add_openmw_dir (mwscript
     )
 
 add_openmw_dir (mwlua
-    luamanagerimp object objectlists userdataserializer luaevents engineevents objectvariant loadscripts contentbindings
+    luamanagerimp object objectlists userdataserializer luaevents engineevents objectvariant
     context menuscripts globalscripts localscripts playerscripts luabindings objectbindings cellbindings coremwscriptbindings
     mwscriptbindings camerabindings vfsbindings uibindings soundbindings inputbindings nearbybindings dialoguebindings
     postprocessingbindings stats recordstore debugbindings corebindings worldbindings worker landbindings magicbindings factionbindings
     classbindings itemdata inputprocessor animationbindings birthsignbindings racebindings markupbindings weatherbindings regionbindings
-    types/types types/door types/item types/actor types/container types/lockable types/weapon types/npc types/bodypart
+    types/types types/door types/item types/actor types/container types/lockable types/weapon types/npc
     types/creature types/player types/activator types/book types/lockpick types/probe types/apparatus
     types/potion types/ingredient types/misc types/repair types/armor types/light types/static
-    types/clothing types/levelledlist types/terminal magictypebindings
+    types/clothing types/levelledlist types/terminal
     )
 
 add_openmw_dir (mwsound
-    soundmanagerimp openaloutput ffmpegdecoder sound soundbuffer sounddecoder soundoutput
+    soundmanagerimp openaloutput ffmpegdecoder nsadecoder sound soundbuffer sounddecoder soundoutput
     loudness movieaudiofactory alext efx efxpresets regionsoundselector watersoundupdater
     )
 
@@ -139,6 +156,40 @@ if (MSVC)
     )
 endif()
 
+if (VITA OR CTR)
+    set_source_files_properties(
+        mwgui/console.cpp
+        mwgui/debugwindow.cpp
+        mwgui/settingswindow.cpp
+        mwgui/savegamedialog.cpp
+        mwgui/journalwindow.cpp
+        mwgui/journalbooks.cpp
+        mwgui/journalviewmodel.cpp
+        mwgui/charactercreation.cpp
+        mwgui/race.cpp
+        mwgui/class.cpp
+        mwgui/birth.cpp
+        mwgui/review.cpp
+        mwgui/levelupdialog.cpp
+        mwgui/spellcreationdialog.cpp
+        mwgui/enchantingdialog.cpp
+        mwgui/trainingwindow.cpp
+        mwgui/travelwindow.cpp
+        mwgui/merchantrepair.cpp
+        mwgui/repair.cpp
+        mwgui/recharge.cpp
+        mwgui/postprocessorhud.cpp
+        mwgui/textinput.cpp
+        mwgui/itemselection.cpp
+        mwgui/companionwindow.cpp
+        mwgui/soulgemdialog.cpp
+        mwgui/waitdialog.cpp
+        mwgui/jailscreen.cpp
+        PROPERTIES
+        COMPILE_FLAGS "-Os"
+    )
+endif()
+
 if(BUILD_OPENMW)
     if (ANDROID)
         add_library(openmw SHARED
@@ -159,6 +210,26 @@ if(BUILD_OPENMW)
     # NOTE: it's unclear whether the broken behavior is spec-compliant
     if (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
         set_target_properties(openmw PROPERTIES ENABLE_EXPORTS ON)
+    endif()
+
+    # vita_create_self expects the ELF in CMAKE_CURRENT_BINARY_DIR
+    if (VITA)
+        set_target_properties(openmw PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        )
+        # FFmpeg TX stubs in executable preempt libavutil.a (saves 16MB BSS).
+        target_sources(openmw PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/vita/ffmpeg_tx_stubs.c
+        )
+    endif()
+    if (CTR)
+        set_target_properties(openmw PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        )
+        # FFmpeg TX stubs (shared guard) — saves 16MB BSS on 3DS too.
+        target_sources(openmw PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/vita/ffmpeg_tx_stubs.c
+        )
     endif()
 endif()
 
@@ -221,6 +292,52 @@ if (ANDROID)
     target_link_libraries(openmw-lib EGL android log z)
 endif (ANDROID)
 
+if (VITA OR CTR)
+    # OSG libs excluded from USED_OSG_COMPONENTS but still needed for linking.
+    foreach(_osgextra osgParticle osgShadow)
+        if(NOT TARGET ${_osgextra})
+            add_library(${_osgextra} STATIC IMPORTED)
+            set_target_properties(${_osgextra} PROPERTIES
+                IMPORTED_LOCATION "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/lib${_osgextra}.a")
+            add_dependencies(${_osgextra} osg)
+        endif()
+    endforeach()
+    target_link_libraries(openmw-lib osgParticle osgShadow)
+endif()
+
+if (CTR)
+    # 3DS system libraries: NovaGL sits on citro3d which sits on libctru.
+    # bz2: freetype/OSG plugin decompression paths.
+    target_link_libraries(openmw-lib NovaGL citro3d ctru bz2)
+endif()
+
+if (VITA)
+    # FFmpeg's libavcodec links libmp3lame for MP3 encoding support
+    target_link_libraries(openmw-lib mp3lame)
+    # Vita system libraries needed by vitaGL
+    target_link_libraries(openmw-lib
+        vitashark
+        mathneon
+        SceShaccCgExt
+        SceShaccCg_stub
+        SceKernelDmacMgr_stub
+        SceSblSsMgr_stub
+        taihen_stub
+        SceKernelModulemgr_stub
+        SceSysmem_stub
+        SceVshBridge_stub
+    )
+    # OpenAL audio backend needs SCE audio port functions
+    target_link_libraries(openmw-lib
+        SceAudio_stub
+    )
+    # dlopen/dlclose/dlsym stubs (osgDB::DynamicLibrary, LuaJIT)
+    target_link_libraries(openmw-lib dl)
+    # PTE (pthreads-to-eabi) — needed by OpenThreads for cleanup handlers
+    target_link_libraries(openmw-lib pthread)
+    # pthread_cancel=0 removed: broke real std::mutex init for game threads.
+endif()
+
 if (USE_SYSTEM_TINYXML)
     target_link_libraries(openmw-lib ${TinyXML_LIBRARIES})
 endif()
@@ -273,4 +390,118 @@ endif()
 
 if (WIN32 AND BUILD_OPENMW)
     INSTALL(TARGETS openmw RUNTIME DESTINATION ".")
+endif()
+
+if (CTR AND BUILD_OPENMW)
+    # Package .cia (installable) and .3dsx (homebrew-launcher testing).
+    # Not part of ALL — run `make openmw_cia` explicitly.
+    add_custom_target(openmw_cia
+        COMMAND bash ${CMAKE_SOURCE_DIR}/scripts/ctr/make-cia.sh ${CMAKE_BINARY_DIR} ${CMAKE_SOURCE_DIR}
+        DEPENDS openmw
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Packaging openmw.cia / openmw.3dsx"
+        VERBATIM
+    )
+endif()
+
+if (VITA AND BUILD_OPENMW)
+    include("${VITASDK}/share/vita.cmake" REQUIRED)
+
+    if(NOT VITA_TITLEID)
+        set(VITA_TITLEID "OMWV00001")
+    endif()
+    if(NOT VITA_APP_NAME)
+        set(VITA_APP_NAME "OpenMW")
+    endif()
+
+    # Extra memory mode: +109MB RAM (Vita disables background services)
+    set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
+
+    # Bundle MOP + Project Atlas mod assets into the VPK as Morrowind BSA
+    # archives at app0:/resources/baked-mods/<NN>-<slug>.bsa. The cfg-side
+    # `data=` + `fallback-archive=` entries are written at boot by
+    # autoDetectBakedMods() in apps/openmw/vita/VitaInit.cpp, which scans
+    # the BSAs present in app0 — so the cfg side needs no build-time wiring.
+    # Source assets live in <repo>/mods/; if that tree is absent the bake
+    # script no-ops cleanly.
+    option(OPENMW_VITA_BAKE_MODS
+        "Bundle MOP + Project Atlas mod assets into the VPK as BSAs" ON)
+
+    # Fix ARM relocations and veneer literal pools BEFORE conversion.
+    add_custom_command(TARGET openmw POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-relocations.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-veneers.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMENT "Fixing ARM relocations and veneer literal pools"
+        VERBATIM
+    )
+
+    # Convert ELF to Vita SELF (eboot.bin)
+    vita_create_self(eboot.bin openmw
+        UNSAFE
+        NOASLR
+        ATTRIBUTE 0x02000000
+    )
+
+    # Zero BSS: Vita loader doesn't zero memsz > filesz gap.
+    add_custom_command(TARGET openmw-velf POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-bss.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw.velf
+        COMMENT "Expanding BSS in VELF (zeroing uninitialized data)"
+    )
+    # eboot.bin-self depends on openmw.velf (file), but file-level deps bypass
+    # POST_BUILD. Force target-level dep so fix-bss.py finishes before
+    # vita-make-fself reads the VELF. Without this, -jN causes a read race.
+    add_dependencies(eboot.bin-self openmw-velf)
+
+    # LiveArea assets
+    set(VITA_DATA_DIR ${CMAKE_SOURCE_DIR}/data/vita)
+
+    # Create VPK package
+    vita_create_vpk(openmw.vpk ${VITA_TITLEID} eboot.bin
+        VERSION 01.00
+        NAME ${VITA_APP_NAME}
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/openmw.cfg openmw.cfg
+        FILE ${CMAKE_BINARY_DIR}/defaults.bin defaults.bin
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/settings.cfg settings.cfg
+        FILE ${VITA_DATA_DIR}/sce_sys/icon0.png sce_sys/icon0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+        # Pre-warmed VFS file index for path-stable engine resource dirs
+        # (app0:/resources/vfs and app0:/resources/vfs-mw). Skips ~22KB of
+        # recursive_directory_iterator work on first launch. Copied to
+        # ux0:data/openmw/config/ at boot if not already present.
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/vfs_seed/vfs_dir_0.bin vfs_seed/vfs_dir_0.bin
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/vfs_seed/vfs_dir_1.bin vfs_seed/vfs_dir_1.bin
+        # GOG ships ~21k loose files extracted from the BSAs, making the
+        # first-boot recursive scan effectively forever. Copied into vfs_dir_2.bin
+        # only when a GOG marker (bcsounds.esp) is detected at the data root.
+        # Generated by scripts/vita/build-vfs-seed.py from a clean GOG dump.
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/vfs_seed/vfs_dir_2_gog.bin vfs_seed/vfs_dir_2_gog.bin
+    )
+
+    # Inject ${CMAKE_BINARY_DIR}/resources (shaders, fonts, lua_api, vfs, ...)
+    # into the VPK. vita_create_vpk only packs explicit FILE entries; OSG/OpenMW
+    # needs the full resources tree or launch crashes with missing shader files.
+    add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/add-resources-to-vpk.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk
+            ${CMAKE_BINARY_DIR}/resources
+        COMMENT "Adding resources/ directory to VPK"
+    )
+
+    # Bundle MOP + Project Atlas mod assets at resources/baked-mods/<name>/.
+    # Script no-ops cleanly if <repo>/mods/ or individual sources are missing,
+    # so this is safe to leave enabled on dev machines without the mods tree.
+    if(OPENMW_VITA_BAKE_MODS)
+        add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
+            COMMAND python3
+                ${CMAKE_SOURCE_DIR}/scripts/vita/add-baked-mods-to-vpk.py
+                ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk
+                ${CMAKE_SOURCE_DIR}/mods
+            COMMENT "Adding baked-in optimization mods (MOP + Project Atlas) to VPK"
+        )
+    endif()
 endif()

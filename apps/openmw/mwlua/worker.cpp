@@ -90,6 +90,14 @@ namespace MWLua
             {
                 Log(Debug::Error) << "Failed to update LuaManager: " << e.what();
             }
+#if defined(__vita__) || defined(__3DS__)
+            // Non-std exceptions must not skip the reset/notify below,
+            // otherwise finishUpdate on the main thread waits forever.
+            catch (...)
+            {
+                Log(Debug::Error) << "LuaWorker: non-std exception during update";
+            }
+#endif
 
             mUpdateRequest.reset();
             lk.unlock();

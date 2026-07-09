@@ -1,0 +1,120 @@
+FROM --platform=linux/amd64 ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Host build tools
+RUN apt-get update && apt-get install -y \
+    build-essential gcc-multilib g++-multilib git wget curl unzip zip sudo \
+    python3 python3-pip pkg-config autoconf automake libtool \
+    && pip3 install cmake==3.28.1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install VitaSDK
+ENV VITASDK=/usr/local/vitasdk
+ENV PATH="${VITASDK}/bin:${PATH}"
+RUN git clone https://github.com/vitasdk/vdpm.git /tmp/vdpm \
+    && cd /tmp/vdpm \
+    && ./bootstrap-vitasdk.sh \
+    && ./install-all.sh \
+    && rm -rf /tmp/vdpm
+
+# lz4 — not in vdpm's install-all list and package tarball is corrupt; build from source
+RUN git clone --depth=1 --branch=v1.10.0 https://github.com/lz4/lz4.git /tmp/lz4 \
+    && cd /tmp/lz4 \
+    && make -j$(nproc) CC=arm-vita-eabi-gcc AR=arm-vita-eabi-ar \
+       PREFIX=${VITASDK}/arm-vita-eabi \
+       BUILD_SHARED=no lib \
+    && cp lib/liblz4.a ${VITASDK}/arm-vita-eabi/lib/ \
+    && cp lib/lz4.h lib/lz4hc.h lib/lz4frame.h lib/lz4frame_static.h \
+       ${VITASDK}/arm-vita-eabi/include/ \
+    && rm -rf /tmp/lz4
+
+# Build vitaGL
+ENV VITAGL_DIR=/opt/vitaGL
+RUN git clone https://github.com/Rinnegatamante/vitaGL.git ${VITAGL_DIR} \
+    && cd ${VITAGL_DIR} \
+    && make -j$(nproc) \
+       DEPTH_STENCIL_HACK=1 \
+       DRAW_SPEEDHACK=1 MATH_SPEEDHACK=1 \
+       TEXTURES_SPEEDHACK=1 BUFFERS_SPEEDHACK=1 \
+       SAMPLERS_SPEEDHACK=1 HAVE_SHADER_CACHE=1
+
+# Build OpenMW Vita dependencies
+COPY scripts/vita-deps /tmp/vita-deps
+RUN chmod +x /tmp/vita-deps/*.sh \
+    && cd /tmp && bash vita-deps/build-all.sh /tmp/vita-deps-build \
+    && rm -rf /tmp/vita-deps /tmp/vita-deps-build
+
+# Pre-download FetchContent sources (CMake's curl has HTTP/2 bugs with GitHub)
+RUN mkdir -p /tmp/fc && cd /tmp/fc \
+    && wget -q -O bullet.tar.gz  https://github.com/bulletphysics/bullet3/archive/refs/tags/3.17.tar.gz \
+    && wget -q -O mygui.zip      https://github.com/MyGUI/mygui/archive/refs/tags/MyGUI3.4.3.zip \
+    && wget -q -O osg.zip        https://github.com/OpenMW/osg/archive/01cc2b585c8456a4ff843066b7e1a8715558289f.zip \
+    && wget -q -O recast.zip     https://github.com/OpenMW/recastnavigation/archive/03259f3287ff8330f0d66fcd98d022edddffaa97.zip \
+    && wget -q -O sqlite3.zip    https://www.sqlite.org/2023/sqlite-amalgamation-3410100.zip \
+    && wget -q -O yaml-cpp.zip   https://github.com/jbeder/yaml-cpp/archive/c2680200486572baf8221ba052ef50b58ecd816e.zip \
+    && wget -q -O icu.zip        https://github.com/unicode-org/icu/archive/refs/tags/release-70-1.zip \
+    && tar xzf bullet.tar.gz  && mv bullet3-3.17 bullet-src \
+    && unzip -q mygui.zip      && mv mygui-MyGUI3.4.3 mygui-src \
+    && unzip -q osg.zip        && mv osg-01cc2b585c8456a4ff843066b7e1a8715558289f osg-src \
+    && unzip -q recast.zip     && mv recastnavigation-03259f3287ff8330f0d66fcd98d022edddffaa97 recast-src \
+    && unzip -q sqlite3.zip    && mv sqlite-amalgamation-3410100 sqlite3-src \
+    && unzip -q yaml-cpp.zip   && mv yaml-cpp-c2680200486572baf8221ba052ef50b58ecd816e yaml-cpp-src \
+    && unzip -q icu.zip        && mv icu-release-70-1 icu-src \
+    && rm -f *.tar.gz *.zip
+
+# Apply Vita compatibility patches to OSG
+COPY patches/osg /tmp/patches/osg
+RUN cd /tmp/fc/osg-src && patch -p1 < /tmp/patches/osg/vita-compat.patch
+
+# Build ICU host tools (needed for data filtering during cross-compile)
+RUN cd /tmp/fc/icu-src/icu4c/source \
+    && cp config/mh-linux config/mh-unknown \
+    && mkdir -p /tmp/icu-host-build && cd /tmp/icu-host-build \
+    && /tmp/fc/icu-src/icu4c/source/configure \
+       --enable-static --disable-shared \
+       --disable-extras --disable-tests --disable-samples --disable-icuio \
+    && make -j$(nproc)
+
+# Build OpenMW
+WORKDIR /src
+COPY . .
+RUN mkdir -p build-vita && cd build-vita \
+    && cmake \
+       -DCMAKE_TOOLCHAIN_FILE=../cmake/VitaToolchain.cmake \
+       -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+       -DVITAGL_DIR=${VITAGL_DIR} \
+       -DICU_HOST_BUILD_DIR=/tmp/icu-host-build \
+       -DOPENMW_RESOURCES_ROOT=/src/build-vita \
+       -DBUILD_OPENMW=ON \
+       -DBUILD_LAUNCHER=OFF \
+       -DBUILD_WIZARD=OFF \
+       -DBUILD_ESSIMPORTER=OFF \
+       -DBUILD_BSATOOL=OFF \
+       -DBUILD_ESMTOOL=OFF \
+       -DBUILD_NIFTEST=OFF \
+       -DBUILD_BULLETOBJECTTOOL=OFF \
+       -DBUILD_NAVMESHTOOL=OFF \
+       -DBUILD_OPENCS=OFF \
+       -DOPENMW_USE_SYSTEM_BULLET=OFF \
+       -DOPENMW_USE_SYSTEM_OSG=OFF \
+       -DOPENMW_USE_SYSTEM_MYGUI=OFF \
+       -DOPENMW_USE_SYSTEM_RECASTNAVIGATION=OFF \
+       -DOPENMW_USE_SYSTEM_SQLITE3=OFF \
+       -DOPENMW_USE_SYSTEM_YAML_CPP=OFF \
+       -DOPENMW_USE_SYSTEM_ICU=OFF \
+       -DFETCHCONTENT_SOURCE_DIR_BULLET=/tmp/fc/bullet-src \
+       -DFETCHCONTENT_SOURCE_DIR_MYGUI=/tmp/fc/mygui-src \
+       -DFETCHCONTENT_SOURCE_DIR_OSG=/tmp/fc/osg-src \
+       -DFETCHCONTENT_SOURCE_DIR_RECASTNAVIGATION=/tmp/fc/recast-src \
+       -DFETCHCONTENT_SOURCE_DIR_SQLITE3=/tmp/fc/sqlite3-src \
+       -DFETCHCONTENT_SOURCE_DIR_YAML-CPP=/tmp/fc/yaml-cpp-src \
+       -DFETCHCONTENT_SOURCE_DIR_ICU=/tmp/fc/icu-src \
+       -D_OPENTHREADS_ATOMIC_USE_GCC_BUILTINS_EXITCODE=0 \
+       .. \
+    && make -C _deps/osg-build -j$(nproc) \
+    && make -j4 openmw.vpk-vpk
+
+# VPK at /src/build-vita/apps/openmw/openmw.vpk
+# Extract: docker cp <container>:/src/build-vita/apps/openmw/openmw.vpk .

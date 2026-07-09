@@ -98,16 +98,16 @@ namespace MWGui
         clearPages();
         mCurrentPage = 0;
 
-        const std::string* text;
+        std::string text;
         if (book.getType() == ESM::REC_BOOK)
-            text = &book.get<ESM::Book>()->mBase->mText;
+            text = book.get<ESM::Book>()->mBase->getText(); // may come from the SD pool
         else
-            text = &book.get<ESM4::Book>()->mBase->mText;
+            text = book.get<ESM4::Book>()->mBase->mText;
         bool shrinkTextAtLastTag = book.getType() == ESM::REC_BOOK;
 
         Formatting::BookFormatter formatter;
-        mPages = formatter.markupToWidget(mLeftPage, *text, shrinkTextAtLastTag);
-        formatter.markupToWidget(mRightPage, *text, shrinkTextAtLastTag);
+        mPages = formatter.markupToWidget(mLeftPage, text, shrinkTextAtLastTag);
+        formatter.markupToWidget(mRightPage, text, shrinkTextAtLastTag);
 
         updatePages();
 

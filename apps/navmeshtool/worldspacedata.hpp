@@ -2,7 +2,6 @@
 #define OPENMW_NAVMESHTOOL_WORLDSPACEDATA_H
 
 #include <components/bullethelpers/collisionobject.hpp>
-#include <components/detournavigator/settings.hpp>
 #include <components/detournavigator/tilecachedrecastmeshmanager.hpp>
 #include <components/esm3/loadland.hpp>
 #include <components/misc/convert.hpp>
@@ -38,10 +37,14 @@ namespace EsmLoader
     struct EsmData;
 }
 
+namespace DetourNavigator
+{
+    struct Settings;
+}
+
 namespace NavMeshTool
 {
     using DetourNavigator::ObjectTransform;
-    using DetourNavigator::RecastSettings;
     using DetourNavigator::TileCachedRecastMeshManager;
 
     class BulletObject
@@ -68,30 +71,18 @@ namespace NavMeshTool
         std::unique_ptr<btCollisionObject> mCollisionObject;
     };
 
-    struct TilesData
+    struct WorldspaceData
     {
-        const RecastSettings mSettings;
-        TileCachedRecastMeshManager mTileCachedRecastMeshManager;
+        ESM::RefId mWorldspace;
+        std::unique_ptr<TileCachedRecastMeshManager> mTileCachedRecastMeshManager;
+        btAABB mAabb;
+        bool mAabbInitialized = false;
+        std::vector<DetourNavigator::TilePosition> mTiles;
         std::vector<BulletObject> mObjects;
         std::vector<std::unique_ptr<ESM::Land::LandData>> mLandData;
         std::vector<std::vector<float>> mHeightfields;
 
-        explicit TilesData(const RecastSettings& settings)
-            : mSettings(settings)
-            , mTileCachedRecastMeshManager(mSettings)
-        {
-        }
-    };
-
-    struct WorldspaceData
-    {
-        ESM::RefId mWorldspace;
-        btAABB mAabb;
-        bool mAabbInitialized = false;
-        std::vector<DetourNavigator::TilePosition> mTiles;
-        std::shared_ptr<TilesData> mTilesData;
-
-        WorldspaceData(ESM::RefId worldspace, const RecastSettings& settings);
+        WorldspaceData(ESM::RefId worldspace, const DetourNavigator::RecastSettings& settings);
     };
 
     std::unordered_map<ESM::RefId, std::vector<std::size_t>> collectWorldspaceCells(

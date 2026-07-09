@@ -1,6 +1,7 @@
 #include "esmstore.hpp"
 
 #include <algorithm>
+#include <deque>
 #include <fstream>
 #include <tuple>
 
@@ -20,6 +21,20 @@
 
 #include "../mwmechanics/spelllist.hpp"
 
+#ifdef __3DS__
+#include <components/esm3/ctrinfoblob.hpp>
+#include <components/esm3/ctrstrpool.hpp>
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <malloc.h>
+#include <map>
+#include <vector>
+
+#include "../vita/VitaInit.h"
+#endif
+
 namespace
 {
     struct Ref
@@ -34,9 +49,20 @@ namespace
         }
     };
 
+#ifdef __3DS__
+    // 3DS: these containers hold one entry per cell ref in the whole load
+    // order (~300k+). vector's doubling needs old+new blocks live at once —
+    // a guaranteed OOM on the fragmented sbrk heap. deque grows in pages.
+    template <class T>
+    using RefsContainer = std::deque<T>;
+#else
+    template <class T>
+    using RefsContainer = std::vector<T>;
+#endif
+
     constexpr std::size_t deletedRefID = std::numeric_limits<std::size_t>::max();
 
-    void readRefs(const ESM::Cell& cell, std::vector<Ref>& refs, std::vector<ESM::RefId>& refIDs,
+    void readRefs(const ESM::Cell& cell, RefsContainer<Ref>& refs, RefsContainer<ESM::RefId>& refIDs,
         std::set<ESM::RefId>& keyIDs, ESM::ReadersCache& readers)
     {
         // TODO: we have many similar copies of this code.
@@ -175,7 +201,7 @@ namespace
                 if (!mgef)
                 {
                     Log(Debug::Verbose) << RecordType::getRecordType() << " " << spell.mId
-                                        << ": dropping invalid effect (" << iter->mData.mEffectID << ")";
+                                        << ": dropping invalid effect (index " << iter->mData.mEffectID << ")";
                     iter = spell.mEffects.mList.erase(iter);
                     changed = true;
                     continue;
@@ -391,6 +417,69 @@ namespace MWWorld
         if (listener != nullptr)
             listener->setProgressRange(::EsmLoader::fileProgress);
 
+#ifdef __3DS__
+        // Per-type heap census: records of one type are contiguous in an ESM,
+        // so sampling mallinfo at type boundaries (plus every 512 records)
+        // attributes the load cost per store accurately at ~200 samples/file.
+        struct CtrLoadCensus
+        {
+            std::map<uint32_t, long> mBytes;
+            uint32_t mCurKey = 0;
+            long mLastUsed = 0;
+            int mTick = 0;
+
+            static uint32_t keyOf(ESM::RecNameInts rec)
+            {
+                // DIAL interleaves with its INFO children — one bucket, or
+                // boundary sampling fires per topic.
+                if (rec == ESM::REC_INFO)
+                    return ESM::REC_DIAL;
+                return rec;
+            }
+
+            void sample(uint32_t newKey)
+            {
+                struct mallinfo mi = mallinfo();
+                const long used = static_cast<long>(mi.uordblks);
+                if (mCurKey != 0)
+                    mBytes[mCurKey] += used - mLastUsed;
+                mLastUsed = used;
+                mCurKey = newKey;
+                mTick = 0;
+            }
+
+            void tick(ESM::RecNameInts rec)
+            {
+                const uint32_t key = keyOf(rec);
+                if (key != mCurKey)
+                    sample(key);
+                else if (++mTick >= 512)
+                    sample(key);
+            }
+
+            void report()
+            {
+                sample(0);
+                std::vector<std::pair<long, uint32_t>> top;
+                top.reserve(mBytes.size());
+                for (const auto& [k, v] : mBytes)
+                    top.emplace_back(v, k);
+                std::sort(top.rbegin(), top.rend());
+                char buf[96];
+                int n = 0;
+                for (const auto& [bytes, k] : top)
+                {
+                    if (++n > 14 || bytes < 128 * 1024)
+                        break;
+                    snprintf(buf, sizeof(buf), "[LoadCensus] %c%c%c%c: %ld KB", static_cast<char>(k & 0xff),
+                        static_cast<char>((k >> 8) & 0xff), static_cast<char>((k >> 16) & 0xff),
+                        static_cast<char>((k >> 24) & 0xff), bytes / 1024);
+                    Vita::breadcrumb(buf);
+                }
+            }
+        } census;
+#endif
+
         // Loop through all records
         while (esm.hasMoreRecs())
         {
@@ -404,6 +493,9 @@ namespace MWWorld
 
             // Look up the record type.
             ESM::RecNameInts recName = static_cast<ESM::RecNameInts>(n.toInt());
+#ifdef __3DS__
+            census.tick(recName);
+#endif
             const auto& it = mStoreImp->mRecNameToStore.find(recName);
 
             if (it == mStoreImp->mRecNameToStore.end())
@@ -466,6 +558,10 @@ namespace MWWorld
             if (listener != nullptr)
                 listener->setProgress(::EsmLoader::fileProgress * esm.getFileOffset() / esm.getFileSize());
         }
+
+#ifdef __3DS__
+        census.report();
+#endif
     }
 
     void ESMStore::loadESM4(ESM4::Reader& reader, Loading::Listener* listener)
@@ -525,6 +621,7 @@ namespace MWWorld
             store->setUp();
 
         getWritable<ESM::Skill>().setUp(get<ESM::GameSetting>());
+        getWritable<ESM::MagicEffect>().setUp(get<ESM::GameSetting>());
         getWritable<ESM::Attribute>().setUp(get<ESM::GameSetting>());
         getWritable<ESM4::Land>().updateLandPositions(get<ESM4::Cell>());
         getWritable<ESM4::Reference>().preprocessReferences(get<ESM4::Cell>());
@@ -533,6 +630,72 @@ namespace MWWorld
 
         rebuildIdsIndex();
         mStoreImp->mStaticIds = mStoreImp->mIds;
+
+#ifdef __3DS__
+        // Memory census: the store is the single biggest heap consumer on
+        // the 3DS. Dump per-type record counts and the string tonnage so the
+        // fattest stores are visible in boot.log.
+        {
+            char buf[160];
+            for (const auto& [recName, store] : mStoreImp->mRecNameToStore)
+            {
+                const size_t n = store->getSize();
+                if (n == 0)
+                    continue;
+                const uint32_t k = static_cast<uint32_t>(recName);
+                snprintf(buf, sizeof(buf), "[Store] %c%c%c%c: %u", static_cast<char>(k & 0xff),
+                    static_cast<char>((k >> 8) & 0xff), static_cast<char>((k >> 16) & 0xff),
+                    static_cast<char>((k >> 24) & 0xff), static_cast<unsigned>(n));
+                Vita::breadcrumb(buf);
+            }
+            size_t infos = 0, selects = 0, dlgInline = 0, dlgPooled = 0;
+            for (const ESM::Dialogue& d : get<ESM::Dialogue>())
+            {
+                for (const ESM::DialInfo& i : d.mInfo)
+                {
+                    ++infos;
+                    selects += i.mSelects.size();
+                    dlgInline += i.mResponse.size() + i.mResultScript.size();
+                    dlgPooled += i.mResponseLen + i.mResultLen;
+                }
+            }
+            size_t bookInline = 0, bookPooled = 0;
+            for (const ESM::Book& b : get<ESM::Book>())
+            {
+                bookInline += b.mText.size();
+                bookPooled += b.mTextLen;
+            }
+            size_t scptB = 0;
+            for (const ESM::Script& s : get<ESM::Script>())
+                scptB += s.mScriptText.size();
+            snprintf(buf, sizeof(buf),
+                "[Store] INFO=%u sel=%u dlgRAM=%uKB dlgSD=%uKB bookRAM=%uKB bookSD=%uKB scptRAM=%uKB",
+                static_cast<unsigned>(infos), static_cast<unsigned>(selects), static_cast<unsigned>(dlgInline / 1024),
+                static_cast<unsigned>(dlgPooled / 1024), static_cast<unsigned>(bookInline / 1024),
+                static_cast<unsigned>(bookPooled / 1024), static_cast<unsigned>(scptB / 1024));
+            Vita::breadcrumb(buf);
+
+            // INFO diet: serialize every topic's ordered infos into the flat
+            // CtrInfoBlob and free the std::list originals (~32k DialInfo =
+            // ~9MB as lists, ~3MB baked). Runtime readers go through
+            // Dialogue::readInfos(), which rematerializes topics on demand.
+            {
+                ESM::CtrInfoBlob& blob = ESM::CtrInfoBlob::instance();
+                getWritable<ESM::Dialogue>().ctrForEachDialogue([&blob](ESM::Dialogue& d) {
+                    if (d.mCtrInfoSection == ESM::CtrInfoBlob::sNoSection)
+                    {
+                        d.mCtrInfoSection = blob.bake(d.mInfo);
+                        d.mInfo.clear();
+                    }
+                });
+                blob.seal();
+                malloc_trim(0);
+                snprintf(buf, sizeof(buf), "[Store] INFO blob=%uKB", static_cast<unsigned>(blob.blobBytes() / 1024));
+                Vita::breadcrumb(buf);
+            }
+            Vita::logMemoryStatus("Post-store-setUp");
+        }
+#endif
     }
 
     void ESMStore::rebuildIdsIndex()
@@ -562,16 +725,36 @@ namespace MWWorld
         // We should consider consolidating or deferring this reading.
         if (!mRefCount.empty())
             return;
-        std::vector<Ref> refs;
+#ifdef __3DS__
+        // Warm boot: mRefCount and the key-item ids only depend on the
+        // content set, and recomputing them re-reads every ESM cell block --
+        // ~25s on top of the load. Cache them on SD keyed by the same
+        // fingerprint the string pool uses.
+        if (loadRefCountCache())
+            return;
+#endif
+        RefsContainer<Ref> refs;
         std::set<ESM::RefId> keyIDs;
-        std::vector<ESM::RefId> refIDs;
+        RefsContainer<ESM::RefId> refIDs;
         const Store<ESM::Cell>& cells = get<ESM::Cell>();
         for (auto it = cells.intBegin(); it != cells.intEnd(); ++it)
             readRefs(*it, refs, refIDs, keyIDs, readers);
         for (auto it = cells.extBegin(); it != cells.extEnd(); ++it)
             readRefs(*it, refs, refIDs, keyIDs, readers);
+#ifdef __3DS__
+        // Plain in-place sort with an insertion-order tiebreak: same final
+        // order as stable_sort, but no temp buffer (stable_sort allocates a
+        // half-size merge buffer — megabytes we don't have).
+        const auto lessByRefNum = [](const Ref& l, const Ref& r) {
+            if (l.mRefNum != r.mRefNum)
+                return l.mRefNum < r.mRefNum;
+            return l.mRefID < r.mRefID;
+        };
+        std::sort(refs.begin(), refs.end(), lessByRefNum);
+#else
         const auto lessByRefNum = [](const Ref& l, const Ref& r) { return l.mRefNum < r.mRefNum; };
         std::stable_sort(refs.begin(), refs.end(), lessByRefNum);
+#endif
         const auto equalByRefNum = [](const Ref& l, const Ref& r) { return l.mRefNum == r.mRefNum; };
         const auto incrementRefCount = [&](const Ref& value) {
             if (value.mRefID != deletedRefID)
@@ -588,7 +771,123 @@ namespace MWWorld
             if (it != store.end())
                 it->second.mData.mFlags |= ESM::Miscellaneous::Key;
         }
+#ifdef __3DS__
+        saveRefCountCache(keyIDs);
+#endif
     }
+
+#ifdef __3DS__
+    namespace
+    {
+        constexpr char sRefCacheMagic[8] = { 'O', 'M', 'W', 'R', 'E', 'F', 'C', '1' };
+        constexpr const char* sRefCachePath = "sdmc:/3ds/openmw/config/refcount.bin";
+
+        bool readAll(FILE* f, void* p, size_t n)
+        {
+            return fread(p, 1, n, f) == n;
+        }
+        bool writeAll(FILE* f, const void* p, size_t n)
+        {
+            return fwrite(p, 1, n, f) == n;
+        }
+        bool readId(FILE* f, std::string& buf, ESM::RefId& out)
+        {
+            uint16_t len = 0;
+            if (!readAll(f, &len, 2))
+                return false;
+            buf.resize(len);
+            if (!readAll(f, buf.data(), len))
+                return false;
+            out = ESM::RefId::deserializeText(buf);
+            return true;
+        }
+        bool writeId(FILE* f, const ESM::RefId& id)
+        {
+            const std::string s = id.serializeText();
+            const uint16_t len = static_cast<uint16_t>(s.size());
+            return writeAll(f, &len, 2) && writeAll(f, s.data(), len);
+        }
+    }
+
+    bool ESMStore::loadRefCountCache()
+    {
+        const uint64_t fp = ESM::CtrStrPool::instance().fingerprint();
+        if (fp == 0)
+            return false;
+        FILE* f = fopen(sRefCachePath, "rb");
+        if (!f)
+            return false;
+        char magic[8];
+        uint64_t ffp = 0;
+        bool ok = readAll(f, magic, 8) && readAll(f, &ffp, 8) && memcmp(magic, sRefCacheMagic, 8) == 0 && ffp == fp;
+        uint32_t n = 0;
+        ok = ok && readAll(f, &n, 4);
+        std::string buf;
+        ESM::RefId id;
+        for (uint32_t i = 0; ok && i < n; ++i)
+        {
+            int32_t count = 0;
+            ok = readId(f, buf, id) && readAll(f, &count, 4);
+            if (ok)
+                mRefCount[id] = count;
+        }
+        uint32_t k = 0;
+        ok = ok && readAll(f, &k, 4);
+        auto& miscStore = getWritable<ESM::Miscellaneous>().mStatic;
+        for (uint32_t i = 0; ok && i < k; ++i)
+        {
+            ok = readId(f, buf, id);
+            if (ok)
+            {
+                auto it = miscStore.find(id);
+                if (it != miscStore.end())
+                    it->second.mData.mFlags |= ESM::Miscellaneous::Key;
+            }
+        }
+        fclose(f);
+        if (!ok)
+        {
+            mRefCount.clear();
+            Vita::breadcrumb("[RefCache] stale/corrupt - recomputing");
+            return false;
+        }
+        char msg[96];
+        snprintf(msg, sizeof(msg), "[RefCache] loaded %u ref counts, %u key ids", static_cast<unsigned>(n),
+            static_cast<unsigned>(k));
+        Vita::breadcrumb(msg);
+        return true;
+    }
+
+    void ESMStore::saveRefCountCache(const std::set<ESM::RefId>& keyIDs) const
+    {
+        const uint64_t fp = ESM::CtrStrPool::instance().fingerprint();
+        if (fp == 0)
+            return;
+        FILE* f = fopen(sRefCachePath, "wb");
+        if (!f)
+            return;
+        bool ok = writeAll(f, sRefCacheMagic, 8) && writeAll(f, &fp, 8);
+        const uint32_t n = static_cast<uint32_t>(mRefCount.size());
+        ok = ok && writeAll(f, &n, 4);
+        for (auto it = mRefCount.begin(); ok && it != mRefCount.end(); ++it)
+        {
+            const int32_t count = it->second;
+            ok = writeId(f, it->first) && writeAll(f, &count, 4);
+        }
+        const uint32_t k = static_cast<uint32_t>(keyIDs.size());
+        ok = ok && writeAll(f, &k, 4);
+        for (auto it = keyIDs.begin(); ok && it != keyIDs.end(); ++it)
+            ok = writeId(f, *it);
+        fclose(f);
+        if (!ok)
+        {
+            remove(sRefCachePath);
+            Vita::breadcrumb("[RefCache] write failed - removed");
+        }
+        else
+            Vita::breadcrumb("[RefCache] saved");
+    }
+#endif
 
     int ESMStore::getRefCount(const ESM::RefId& id) const
     {
@@ -690,9 +989,7 @@ namespace MWWorld
             + get<ESM::Activator>().getDynamicSize() + get<ESM::Miscellaneous>().getDynamicSize()
             + get<ESM::Weapon>().getDynamicSize() + get<ESM::CreatureLevList>().getDynamicSize()
             + get<ESM::ItemLevList>().getDynamicSize() + get<ESM::Creature>().getDynamicSize()
-            + get<ESM::Container>().getDynamicSize() + get<ESM::Light>().getDynamicSize()
-            + get<ESM::Static>().getDynamicSize() + get<ESM::Door>().getDynamicSize()
-            + get<ESM::Probe>().getDynamicSize() + get<ESM::Ingredient>().getDynamicSize();
+            + get<ESM::Container>().getDynamicSize() + get<ESM::Light>().getDynamicSize();
     }
 
     void ESMStore::write(ESM::ESMWriter& writer, Loading::Listener& progress) const
@@ -719,10 +1016,6 @@ namespace MWWorld
         get<ESM::Creature>().write(writer, progress);
         get<ESM::Container>().write(writer, progress);
         get<ESM::Light>().write(writer, progress);
-        get<ESM::Static>().write(writer, progress);
-        get<ESM::Door>().write(writer, progress);
-        get<ESM::Probe>().write(writer, progress);
-        get<ESM::Ingredient>().write(writer, progress);
     }
 
     bool ESMStore::readRecord(ESM::ESMReader& reader, uint32_t typeId)
@@ -748,10 +1041,6 @@ namespace MWWorld
             case ESM::REC_LEVI:
             case ESM::REC_LEVC:
             case ESM::REC_LIGH:
-            case ESM::REC_STAT:
-            case ESM::REC_DOOR:
-            case ESM::REC_PROB:
-            case ESM::REC_INGR:
                 mStoreImp->mRecNameToStore[type]->read(reader, true);
                 return true;
 

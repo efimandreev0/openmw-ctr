@@ -1,8 +1,6 @@
 #ifndef OPENMW_NAVMESHTOOL_NAVMESH_H
 #define OPENMW_NAVMESHTOOL_NAVMESH_H
 
-#include <cstddef>
-
 namespace DetourNavigator
 {
     class NavMeshDb;
@@ -19,13 +17,6 @@ namespace NavMeshTool
 {
     struct WorldspaceData;
 
-    struct GenerateAllNavMeshTilesOptions
-    {
-        bool mRemoveUnusedTiles;
-        bool mWriteBinaryLog;
-        bool mCollectStats;
-    };
-
     enum class Status
     {
         Ok,
@@ -33,23 +24,14 @@ namespace NavMeshTool
         NotEnoughSpace,
     };
 
-    struct GenerateTilesStats
-    {
-        int mMaxPolyCountPerTile = 0;
-    };
-
-    struct GenerateTilesResult
+    struct Result
     {
         Status mStatus;
-        std::size_t mProvided;
-        std::size_t mInserted;
-        std::size_t mUpdated;
-        std::size_t mDeleted;
-        GenerateTilesStats mStats;
+        bool mNeedVacuum;
     };
 
-    GenerateTilesResult generateAllNavMeshTiles(const DetourNavigator::AgentBounds& agentBounds,
-        const DetourNavigator::Settings& settings, const GenerateAllNavMeshTilesOptions& options,
+    Result generateAllNavMeshTiles(const DetourNavigator::AgentBounds& agentBounds,
+        const DetourNavigator::Settings& settings, bool removeUnusedTiles, bool writeBinaryLog,
         const WorldspaceData& data, DetourNavigator::NavMeshDb& db, SceneUtil::WorkQueue& workQueue);
 }
 

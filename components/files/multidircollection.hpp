@@ -33,6 +33,12 @@ namespace Files
         /// \param extension The extension that should be listed in this collection. Must
         /// contain the leading dot.
 
+        /// Construct directly from a pre-populated file map. Used by ScanCache to
+        /// restore a previous scan without walking the filesystem.
+        explicit MultiDirCollection(TContainer files) : mFiles(std::move(files)) {}
+
+        const TContainer& getFiles() const { return mFiles; }
+
         std::filesystem::path getPath(std::string_view file) const;
         ///< Return full path (including filename) of \a file.
         ///

@@ -33,6 +33,13 @@ namespace Files
     typedef MacOsPath TargetPathType;
 }
 
+#elif (defined(__vita__) || defined(__3DS__))
+#include <components/files/vitapath.hpp>
+namespace Files
+{
+    typedef VitaPath TargetPathType;
+}
+
 #else
 #error "Unknown platform!"
 #endif

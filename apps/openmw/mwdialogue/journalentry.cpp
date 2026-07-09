@@ -21,19 +21,19 @@ namespace MWDialogue
     {
         const ESM::Dialogue* dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(topic);
 
-        for (ESM::Dialogue::InfoContainer::const_iterator iter(dialogue->mInfo.begin()); iter != dialogue->mInfo.end();
-             ++iter)
+        const auto infos = dialogue->readInfos();
+        for (auto iter = infos.begin(); iter != infos.end(); ++iter)
             if (iter->mId == mInfoId)
             {
                 if (actor.isEmpty())
                 {
                     MWScript::InterpreterContext interpreterContext(nullptr, MWWorld::Ptr());
-                    mText = Interpreter::fixDefinesDialog(iter->mResponse, interpreterContext);
+                    mText = Interpreter::fixDefinesDialog(iter->getResponse(), interpreterContext);
                 }
                 else
                 {
                     MWScript::InterpreterContext interpreterContext(&actor.getRefData().getLocals(), actor);
-                    mText = Interpreter::fixDefinesDialog(iter->mResponse, interpreterContext);
+                    mText = Interpreter::fixDefinesDialog(iter->getResponse(), interpreterContext);
                 }
 
                 return;
@@ -84,12 +84,12 @@ namespace MWDialogue
         return JournalEntry(topic, idFromIndex(topic, index), MWWorld::Ptr());
     }
 
-    const ESM::RefId& JournalEntry::idFromIndex(const ESM::RefId& topic, int index)
+    ESM::RefId JournalEntry::idFromIndex(const ESM::RefId& topic, int index)
     {
         const ESM::Dialogue* dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(topic);
 
-        for (ESM::Dialogue::InfoContainer::const_iterator iter(dialogue->mInfo.begin()); iter != dialogue->mInfo.end();
-             ++iter)
+        const auto infos = dialogue->readInfos();
+        for (auto iter = infos.begin(); iter != infos.end(); ++iter)
             if (iter->mData.mJournalIndex == index)
             {
                 return iter->mId;

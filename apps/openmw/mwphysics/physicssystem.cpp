@@ -93,7 +93,11 @@ namespace
 namespace MWPhysics
 {
     PhysicsSystem::PhysicsSystem(Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode)
+#if defined(__vita__) || defined(__3DS__)
+        : mPhysicsDt(1.f / 30.f)
+#else
         : mPhysicsDt(1.f / 60.f)
+#endif
         , mShapeManager(std::make_unique<Resource::BulletShapeManager>(resourceSystem->getVFS(),
               resourceSystem->getSceneManager(), resourceSystem->getNifFileManager(),
               Settings::cells().mCacheExpiryDelay))
@@ -107,7 +111,15 @@ namespace MWPhysics
     {
         mResourceSystem->addResourceManager(mShapeManager.get());
 
+#if defined(__vita__) || defined(__3DS__)
+        btDefaultCollisionConstructionInfo cci;
+        cci.m_defaultMaxPersistentManifoldPoolSize = 512;
+        cci.m_defaultMaxCollisionAlgorithmPoolSize = 512;
+        mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>(cci);
+        gDbvtMargin = btScalar(0.2);
+#else
         mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>();
+#endif
         mDispatcher = std::make_unique<btCollisionDispatcher>(mCollisionConfiguration.get());
         mBroadphase = std::make_unique<btDbvtBroadphase>();
 
@@ -299,7 +311,16 @@ namespace MWPhysics
     bool PhysicsSystem::canMoveToWaterSurface(const MWWorld::ConstPtr& actor, const float waterlevel)
     {
         const auto* physactor = getActor(actor);
-        return physactor && physactor->canMoveToWaterSurface(waterlevel, mCollisionWorld.get());
+        // Route through the scheduler so the broadphase sweep happens under
+        // the shared lock — previously this was the one unlocked main-thread
+        // reader of the collision world, racing with the async worker during
+        // cell unloads (see PhysicsTaskScheduler::canMoveToWaterSurface).
+        return physactor && mTaskScheduler->canMoveToWaterSurface(physactor, waterlevel);
+    }
+
+    void PhysicsSystem::waitForAsyncWorkers()
+    {
+        mTaskScheduler->waitForWorkers();
     }
 
     osg::Vec3f PhysicsSystem::getHalfExtents(const MWWorld::ConstPtr& actor) const

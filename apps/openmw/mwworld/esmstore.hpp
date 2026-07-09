@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <tuple>
 #include <unordered_map>
@@ -171,10 +172,23 @@ namespace MWWorld
 
         mutable std::unordered_map<ESM::RefId, std::weak_ptr<MWMechanics::SpellList>> mSpellListCache;
 
+        template <class T>
+        Store<T>& getWritable()
+        {
+            return static_cast<Store<T>&>(*mStores[getTypeIndex<T>()]);
+        }
+
         /// Validate entries in store after setup
         void validate();
 
         void countAllCellRefsAndMarkKeys(ESM::ReadersCache& readers);
+
+#ifdef __3DS__
+        // SD cache for mRefCount + key-item ids (see countAllCellRefsAndMarkKeys):
+        // recomputing them re-reads every ESM a second time (~25s per boot).
+        bool loadRefCountCache();
+        void saveRefCountCache(const std::set<ESM::RefId>& keyIDs) const;
+#endif
 
         template <class T>
         void removeMissingObjects(Store<T>& store);
@@ -222,12 +236,6 @@ namespace MWWorld
         const Store<T>& get() const
         {
             return static_cast<const Store<T>&>(*mStores[getTypeIndex<T>()]);
-        }
-
-        template <class T>
-        Store<T>& getWritable()
-        {
-            return static_cast<Store<T>&>(*mStores[getTypeIndex<T>()]);
         }
 
         /// Insert a custom record (i.e. with a generated ID that will not clash will pre-existing records)

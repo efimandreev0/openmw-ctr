@@ -203,6 +203,23 @@ namespace MWWorld
         void preload();
         ///< Build ID list from content file.
 
+#ifdef __3DS__
+        // Diet: drop the preloaded ID list and fall back to State_Unloaded.
+        // Name lookups (getPtrByRefId) preload cells one by one while
+        // scanning and never release them — the addon startup scripts alone
+        // leave ~2000 preloaded cells (~10MB of ids) behind. A dropped cell
+        // simply re-preloads on the next lookup. No-op unless the cell is in
+        // State_Preloaded (loaded cells hold real refs and script state).
+        void ctrDropPreloadedIds()
+        {
+            if (mState != State_Preloaded)
+                return;
+            mIds.clear();
+            mIds.shrink_to_fit();
+            mState = State_Unloaded;
+        }
+#endif
+
         /// Call visitor (MWWorld::Ptr) for each reference. visitor must return a bool. Returning
         /// false will abort the iteration.
         /// \note Prefer using forEachConst when possible.

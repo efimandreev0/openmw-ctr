@@ -53,7 +53,9 @@ namespace MWDialogue
 
         static JournalEntry makeFromQuest(const ESM::RefId& topic, int index);
 
-        static const ESM::RefId& idFromIndex(const ESM::RefId& topic, int index);
+        // By value: the id is looked up in a rematerialized INFO list on the
+        // 3DS, so a reference would dangle once the lookup's handle dies.
+        static ESM::RefId idFromIndex(const ESM::RefId& topic, int index);
     };
 
     /// \brief A quest entry with a timestamp.

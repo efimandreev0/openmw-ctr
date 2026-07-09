@@ -1,6 +1,10 @@
 #include "utf8.hpp"
 
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#else
+#include <string>
+#endif
 
 namespace
 {
@@ -17,12 +21,22 @@ namespace
     {
         double integer;
         if (!arg.is<double>())
+#if defined(__vita__) || defined(__3DS__)
+            throw std::runtime_error("bad argument #" + std::to_string(n) + " to '" + std::string(name)
+                + "' (number expected, got " + sol::type_name(arg.lua_state(), arg.get_type()) + ")");
+#else
             throw std::runtime_error(std::format("bad argument #{} to '{}' (number expected, got {})", n, name,
                 sol::type_name(arg.lua_state(), arg.get_type())));
+#endif
 
         if (std::modf(arg, &integer) != 0)
+#if defined(__vita__) || defined(__3DS__)
+            throw std::runtime_error("bad argument #" + std::to_string(n) + " to '" + std::string(name)
+                + "' (number has no integer representation)");
+#else
             throw std::runtime_error(
                 std::format("bad argument #{} to '{}' (number has no integer representation)", n, name));
+#endif
 
         return static_cast<std::int64_t>(integer);
     }
@@ -127,7 +141,11 @@ namespace LuaUtf8
             {
                 int64_t codepoint = getInteger(args[i], (i + 1), "char");
                 if (codepoint < 0 || codepoint > MAXUNICODE)
+#if defined(__vita__) || defined(__3DS__)
+                    throw std::runtime_error("bad argument #" + std::to_string(i + 1) + " to 'char' (value out of range)");
+#else
                     throw std::runtime_error(std::format("bad argument #{} to 'char' (value out of range)", i + 1));
+#endif
 
                 codepointToUTF8(static_cast<char32_t>(codepoint), result);
             }
@@ -141,7 +159,11 @@ namespace LuaUtf8
                     {
                         const auto pair = decodeNextUTF8Character(s, posByte);
                         if (pair.second == -1)
+#if defined(__vita__) || defined(__3DS__)
+                            throw std::runtime_error("Invalid UTF-8 code at position " + std::to_string(posByte.size()));
+#else
                             throw std::runtime_error(std::format("Invalid UTF-8 code at position {}", posByte.size()));
+#endif
 
                         return pair;
                     }
@@ -200,7 +222,11 @@ namespace LuaUtf8
             {
                 codepoints.push_back(decodeNextUTF8Character(s, posByte).second);
                 if (codepoints.back() == -1)
+#if defined(__vita__) || defined(__3DS__)
+                    throw std::runtime_error("Invalid UTF-8 code at position " + std::to_string(posByte.size()));
+#else
                     throw std::runtime_error(std::format("Invalid UTF-8 code at position {}", posByte.size()));
+#endif
             }
 
             return sol::as_returns(std::move(codepoints));

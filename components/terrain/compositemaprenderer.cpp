@@ -17,6 +17,8 @@ namespace Terrain
         setCullingActive(false);
 
         mFBO = new osg::FrameBufferObject;
+
+        getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     }
 
     CompositeMapRenderer::~CompositeMapRenderer() = default;

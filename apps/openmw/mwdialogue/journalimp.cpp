@@ -61,7 +61,8 @@ namespace MWDialogue
             if (infoId.empty())
                 return true;
 
-            for (const ESM::DialInfo& info : dialogue->mInfo)
+            const auto infos = dialogue->readInfos();
+            for (const ESM::DialInfo& info : infos)
                 if (info.mId == infoId)
                     return true;
         }
@@ -81,7 +82,7 @@ namespace MWDialogue
     void Journal::addEntry(const ESM::RefId& id, int index, const MWWorld::Ptr& actor)
     {
         // bail out if we already have heard this...
-        const ESM::RefId& infoId = JournalEntry::idFromIndex(id, index);
+        const ESM::RefId infoId = JournalEntry::idFromIndex(id, index);
         for (const JournalEntry& entry : mJournal)
             if (entry.mTopic == id && entry.mInfoId == infoId)
             {

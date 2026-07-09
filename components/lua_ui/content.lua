@@ -32,7 +32,11 @@ local function getIndexFromKey(self, key)
     local index = key
     if type(key) == 'string' then
         index = self.__nameIndex[key]
+        if not index then
+            error('Unexpected content key:' .. key)
+        end
     end
+    validateIndex(self, index)
     return index
 end
 
@@ -121,15 +125,16 @@ M.__tostring = function(self)
     return ('UiContent{%d layouts}'):format(#self)
 end
 local function next(self, index)
-    index = index + 1
     local v = rawget(self, index)
     if v then
         return index + 1, v
+    else
+        return nil, nil
     end
 end
 
 M.__pairs = function(self)
-    return next, self, 0
+    return next, self, 1
 end
 M.__ipairs = M.__pairs
 M.__metatable = false

@@ -14,7 +14,8 @@ namespace VFS
 {
 
     void registerArchives(VFS::Manager* vfs, const Files::Collections& collections,
-        const std::vector<std::string>& archives, bool useLooseFiles, const ToUTF8::StatelessUtf8Encoder* encoder)
+        const std::vector<std::string>& archives, bool useLooseFiles, const ToUTF8::StatelessUtf8Encoder* encoder,
+        const std::filesystem::path& vfsCacheDir)
     {
         const Files::PathContainer& dataDirs = collections.getPaths();
 
@@ -36,16 +37,22 @@ namespace VFS
         if (useLooseFiles)
         {
             std::set<std::filesystem::path> seen;
+            int dirIdx = 0;
             for (const auto& dataDir : dataDirs)
             {
                 if (seen.insert(dataDir).second)
                 {
                     Log(Debug::Info) << "Adding data directory " << dataDir;
-                    // Last data dir has the highest priority
-                    vfs->addArchive(std::make_unique<FileSystemArchive>(dataDir));
+                    std::filesystem::path cacheFile;
+#if defined(__vita__) || defined(__3DS__)
+                    if (!vfsCacheDir.empty())
+                        cacheFile = vfsCacheDir / ("vfs_dir_" + std::to_string(dirIdx) + ".bin");
+#endif
+                    vfs->addArchive(std::make_unique<FileSystemArchive>(dataDir, cacheFile));
                 }
                 else
                     Log(Debug::Info) << "Ignoring duplicate data directory " << dataDir;
+                ++dirIdx;
             }
         }
 

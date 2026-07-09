@@ -10,6 +10,10 @@
 #include <thread>
 #include <unordered_set>
 
+#if defined(__vita__) || defined(__3DS__)
+#include <pthread.h>
+#endif
+
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
 
 #include <osg/Timer>
@@ -72,6 +76,17 @@ namespace MWPhysics
         void releaseSharedStates(); // destroy all objects whose destructor can't be safely called from
                                     // ~PhysicsTaskScheduler()
 
+        // Locked wrapper around Actor::canMoveToWaterSurface. Required so
+        // main-thread gameplay callers don't read the broadphase concurrently
+        // with worker iteration.
+        bool canMoveToWaterSurface(const Actor* actor, float waterlevel);
+
+        // Block until any in-flight physics worker step has completed. Workers
+        // stay quiescent until the next doSimulation() kick — useful as a
+        // sync point before destructive operations on the collision world
+        // (e.g. cell unload's batched removeCollisionObject calls).
+        void waitForWorkers();
+
     private:
         class WorkersSync;
 
@@ -88,7 +103,6 @@ namespace MWPhysics
         void afterPostStep();
         void afterPostSim();
         void syncWithMainThread();
-        void waitForWorkers();
         void prepareWork(float& timeAccum, std::vector<Simulation>& simulations, osg::Timer_t frameStart,
             unsigned int frameNumber, osg::Stats& stats);
 
@@ -116,7 +130,11 @@ namespace MWPhysics
         bool mAdvanceSimulation;
         std::atomic<int> mNextJob;
         std::atomic<int> mNextLOS;
+#if defined(__vita__) || defined(__3DS__)
+        std::vector<pthread_t> mThreads;
+#else
         std::vector<std::thread> mThreads;
+#endif
 
         mutable std::shared_mutex mSimulationMutex;
         mutable std::shared_mutex mCollisionWorldMutex;

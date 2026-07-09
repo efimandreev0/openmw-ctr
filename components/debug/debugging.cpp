@@ -21,6 +21,13 @@
 #include <components/misc/strings/conversion.hpp>
 #include <components/misc/strings/lower.hpp>
 
+#if defined(__vita__) || defined(__3DS__)
+#include <cstring>
+#endif
+#ifdef __vita__
+#include <psp2/io/fcntl.h>
+#endif
+
 #ifdef _WIN32
 #include <components/crashcatcher/windowscrashcatcher.hpp>
 #include <components/files/conversion.hpp>
@@ -459,7 +466,9 @@ namespace Debug
             if (const auto env = std::getenv("OPENMW_DISABLE_CRASH_CATCHER");
                 env == nullptr || Misc::StringUtils::toNumeric<int>(env, 0) == 0)
             {
-#if defined(_WIN32)
+#if (defined(__vita__) || defined(__3DS__))
+                // No crash catcher on Vita — no signal handling
+#elif defined(_WIN32)
                 const std::string crashDumpName = Misc::StringUtils::lowerCase(appName) + "-crash.dmp";
                 const std::string freezeDumpName = Misc::StringUtils::lowerCase(appName) + "-freeze.dmp";
                 std::filesystem::path dumpDirectory = std::filesystem::temp_directory_path();
@@ -482,10 +491,37 @@ namespace Debug
         }
         catch (const std::exception& e)
         {
-#if (defined(__APPLE__) || defined(__linux) || defined(__unix) || defined(__posix))
+#if defined(__vita__)
+            // Skip SDL_ShowSimpleMessageBox on Vita — GXM context conflict
+            // Write exception to boot.log since engine log may not be set up yet
+            {
+                SceUID fd = sceIoOpen("ux0:data/openmw/boot.log",
+                    SCE_O_WRONLY | SCE_O_CREAT | SCE_O_APPEND, 0777);
+                if (fd >= 0)
+                {
+                    const char* prefix = "FATAL EXCEPTION: ";
+                    sceIoWrite(fd, prefix, strlen(prefix));
+                    sceIoWrite(fd, e.what(), strlen(e.what()));
+                    sceIoWrite(fd, "\n", 1);
+                    sceIoClose(fd);
+                }
+            }
+#elif defined(__3DS__)
+            // No message box on 3DS — write to boot.log (engine log may not exist yet)
+            {
+                FILE* f = fopen("sdmc:/3ds/openmw/boot.log", "ab");
+                if (f)
+                {
+                    fprintf(f, "FATAL EXCEPTION: %s\n", e.what());
+                    fclose(f);
+                }
+            }
+#elif (defined(__APPLE__) || defined(__linux) || defined(__unix) || defined(__posix))
             if (!isatty(fileno(stdin)))
-#endif
                 SDL_ShowSimpleMessageBox(0, (std::string(appName) + ": Fatal error").c_str(), e.what(), nullptr);
+#else
+                SDL_ShowSimpleMessageBox(0, (std::string(appName) + ": Fatal error").c_str(), e.what(), nullptr);
+#endif
 
             Log(Debug::Error) << "Fatal error: " << e.what();
 

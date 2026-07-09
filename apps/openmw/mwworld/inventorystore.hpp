@@ -55,13 +55,13 @@ namespace MWWorld
         static constexpr int Slot_NoSlot = -1;
 
     private:
-        InventoryStoreListener* mInventoryListener = nullptr;
+        InventoryStoreListener* mInventoryListener;
 
         // Enables updates of magic effects and actor model whenever items are equipped or unequipped.
         // This is disabled during autoequip to avoid excessive updates
-        bool mUpdatesEnabled = true;
+        bool mUpdatesEnabled;
 
-        bool mFirstAutoEquip = true;
+        bool mFirstAutoEquip;
 
         typedef std::vector<ContainerStoreIterator> TSlots;
 
@@ -69,6 +69,9 @@ namespace MWWorld
 
         void autoEquipWeapon(TSlots& slots);
         void autoEquipArmor(TSlots& slots);
+
+        // selected magic item (for using enchantments of type "Cast once" or "Cast when used")
+        ContainerStoreIterator mSelectedEnchantItem;
 
         void copySlots(const InventoryStore& store);
 
@@ -85,11 +88,10 @@ namespace MWWorld
 
     public:
         InventoryStore();
+
         InventoryStore(const InventoryStore& store);
-        InventoryStore(InventoryStore&& store);
 
         InventoryStore& operator=(const InventoryStore& store);
-        InventoryStore& operator=(InventoryStore&& store);
 
         std::unique_ptr<ContainerStore> clone() override
         {
@@ -99,7 +101,7 @@ namespace MWWorld
         }
 
         ContainerStoreIterator add(
-            const ConstPtr& itemPtr, int count, bool allowAutoEquip = true, bool resolve = true) override;
+            const Ptr& itemPtr, int count, bool allowAutoEquip = true, bool resolve = true) override;
         ///< Add the item pointed to by \a ptr to this container. (Stacks automatically if needed)
         /// Auto-equip items if specific conditions are fulfilled and allowAutoEquip is true (see the implementation).
         ///
@@ -117,6 +119,14 @@ namespace MWWorld
         bool isEquipped(const MWWorld::ConstPtr& item);
         bool isEquipped(const ESM::RefId& id);
         ///< Utility function, returns true if the given item is equipped in any slot
+
+        void setSelectedEnchantItem(const ContainerStoreIterator& iterator);
+        ///< set the selected magic item (for using enchantments of type "Cast once" or "Cast when used")
+        /// \note to unset the selected item, call this method with end() iterator
+
+        ContainerStoreIterator getSelectedEnchantItem();
+        ///< @return selected magic item (for using enchantments of type "Cast once" or "Cast when used")
+        /// \note if no item selected, return end() iterator
 
         ContainerStoreIterator getSlot(int slot);
         ConstContainerStoreIterator getSlot(int slot) const;

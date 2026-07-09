@@ -20,6 +20,13 @@ namespace MWPhysics
         {
         }
 
+        bool needsCollision(btBroadphaseProxy* proxy) const override
+        {
+            if (!proxy)
+                return false;
+            return btCollisionWorld::ContactResultCallback::needsCollision(proxy);
+        }
+
         btScalar addSingleResult(btManifoldPoint& cp, const btCollisionObjectWrapper* col0Wrap, int partId0, int index0,
             const btCollisionObjectWrapper* col1Wrap, int partId1, int index1) override;
 

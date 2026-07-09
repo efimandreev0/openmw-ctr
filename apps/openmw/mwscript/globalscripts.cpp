@@ -1,5 +1,16 @@
 #include "globalscripts.hpp"
 
+#ifdef __3DS__
+#include <malloc.h>
+
+#include "../vita/VitaInit.h"
+
+extern "C"
+{
+    extern volatile int g_ctrFrameNo;
+}
+#endif
+
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/esmwriter.hpp>
 #include <components/esm3/globalscript.hpp>
@@ -178,8 +189,28 @@ namespace MWScript
             if (script.second->mRunning)
             {
                 MWScript::InterpreterContext context(script.second);
+#ifdef __3DS__
+                // Boot only (frame counter still 0): attribute heap growth to
+                // the global script that caused it — the newGame startup runs
+                // grew the heap by megabytes with no owner in the log.
+                const bool census = g_ctrFrameNo == 0;
+                const long before = census ? static_cast<long>(mallinfo().uordblks) : 0;
+#endif
                 if (!MWBase::Environment::get().getScriptManager()->run(script.first, context))
                     script.second->mRunning = false;
+#ifdef __3DS__
+                if (census)
+                {
+                    const long delta = static_cast<long>(mallinfo().uordblks) - before;
+                    if (delta > 256 * 1024)
+                    {
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "[GS] %s +%ldKB", script.first.toDebugString().c_str(),
+                            delta / 1024);
+                        Vita::breadcrumb(buf);
+                    }
+                }
+#endif
             }
         }
     }

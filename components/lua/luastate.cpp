@@ -67,10 +67,13 @@ namespace LuaUtil
     {
         LuaState* self;
         (void)lua_getallocf(state, reinterpret_cast<void**>(&self));
-        if (self->mActiveScriptIdStack.empty())
-            return;
-        const ScriptId& activeScript = self->mActiveScriptIdStack.back();
-        activeScript.mContainer->addInstructionCount(activeScript.mIndex, countHookStep);
+
+        if (sProfilerEnabled && !self->mActiveScriptIdStack.empty())
+        {
+            const ScriptId& activeScript = self->mActiveScriptIdStack.back();
+            activeScript.mContainer->addInstructionCount(activeScript.mIndex, countHookStep);
+        }
+
         self->mWatchdogInstructionCounter += countHookStep;
         if (self->mSettings.mInstructionLimit > 0
             && self->mWatchdogInstructionCounter > self->mSettings.mInstructionLimit)
@@ -80,6 +83,18 @@ namespace LuaUtil
                 "To change the limit set \"[Lua] instruction limit per call\" in settings.cfg");
             lua_error(state);
         }
+    }
+
+    // Sets LuaState* as the allocator userdata so lua_getallocf can retrieve it
+    // from the count hook when the profiler is off.
+    static void* plainAllocator(void* /*ud*/, void* ptr, size_t /*osize*/, size_t nsize)
+    {
+        if (nsize == 0)
+        {
+            free(ptr);
+            return nullptr;
+        }
+        return realloc(ptr, nsize);
     }
 
     void* LuaState::trackingAllocator(void* ud, void* ptr, size_t osize, size_t nsize)
@@ -168,7 +183,7 @@ namespace LuaUtil
             Log(Debug::Error) << "Failed to initialize LuaUtil::LuaState with custom allocator; disabling Lua profiler";
         }
         Log(Debug::Info) << "Initializing LuaUtil::LuaState without profiler";
-        LuaStatePtr state(luaL_newstate());
+        LuaStatePtr state(lua_newstate(&plainAllocator, luaState));
         if (state == nullptr)
             throw std::runtime_error("Failed to create Lua runtime");
         return state;
@@ -185,8 +200,9 @@ namespace LuaUtil
         , mConf(conf)
         , mVFS(vfs)
     {
-        if (sProfilerEnabled)
-            lua_sethook(mLuaState.get(), &countHook, LUA_MASKCOUNT, countHookStep);
+        // Enforces mInstructionLimit even with the profiler off, so a runaway
+        // Lua loop cannot hang the worker thread.
+        lua_sethook(mLuaState.get(), &countHook, LUA_MASKCOUNT, countHookStep);
 
         protectedCall([&](LuaView& view) {
             auto& sol = view.sol();

@@ -1,6 +1,6 @@
 ---
--- Defines functions and types that are available in local, global, menu, and load scripts.
--- @context global|menu|local|player|load
+-- Defines functions and types that are available in local, global and menu scripts.
+-- @context global|menu|local|player
 -- @module core
 -- @usage local core = require('openmw.core')
 
@@ -11,53 +11,53 @@
 -- @field [parent=#core] #number API_REVISION
 
 ---
--- Terminates the game and quits to the OS. Should be used only for testing purposes. Not available in load scripts.
+-- Terminates the game and quits to the OS. Should be used only for testing purposes.
 -- @function [parent=#core] quit
 
 ---
--- Send an event to global scripts. Note: in menu scripts, errors if the game is not running (check @{openmw.menu#menu.getState}.) Not available in load scripts.
+-- Send an event to global scripts. Note: in menu scripts, errors if the game is not running (check @{openmw.menu#menu.getState})
 -- @function [parent=#core] sendGlobalEvent
 -- @param #string eventName
 -- @param eventData
 
 ---
 -- Simulation time in seconds.
--- The number of simulation seconds passed in the game world since starting a new game. Not available in load scripts.
+-- The number of simulation seconds passed in the game world since starting a new game.
 -- @function [parent=#core] getSimulationTime
 -- @return #number
 
 ---
--- The scale of simulation time relative to real time. Not available in load scripts.
+-- The scale of simulation time relative to real time.
 -- @function [parent=#core] getSimulationTimeScale
 -- @return #number
 
 ---
--- Game time in seconds. Not available in load scripts.
+-- Game time in seconds.
 -- @function [parent=#core] getGameTime
 -- @return #number
 
 ---
--- The scale of game time relative to simulation time. Not available in load scripts.
+-- The scale of game time relative to simulation time.
 -- @function [parent=#core] getGameTimeScale
 -- @return #number
 
 ---
--- Whether the world is paused. Not available in load scripts.
+-- Whether the world is paused.
 -- @function [parent=#core] isWorldPaused
 -- @return #boolean
 
 ---
--- Real time in seconds; starting point is not fixed (can be time since last reboot), use only for measuring intervals. For Unix time use `os.time()`. Not available in load scripts.
+-- Real time in seconds; starting point is not fixed (can be time since last reboot), use only for measuring intervals. For Unix time use `os.time()`.
 -- @function [parent=#core] getRealTime
 -- @return #number
 
 ---
--- Frame duration in seconds. Not available in global or load scripts.
+-- Frame duration in seconds. Not available in global scripts.
 -- @function [parent=#core] getRealFrameDuration
 -- @return #number
 
 ---
--- Get a game setting with given name (from GMST ESM records or from openmw.cfg). Not available in load scripts.
+-- Get a game setting with given name (from GMST ESM records or from openmw.cfg).
 -- @function [parent=#core] getGMST
 -- @param #string setting Setting name
 -- @return #any
@@ -166,7 +166,6 @@
 -- @field openmw.util#Vector3 position Object position.
 -- @field #number scale Object scale.
 -- @field openmw.util#Transform rotation Object rotation.
--- @field #Cell startingCell The object's original cell. Returns nil if `cell` of the object is nil.
 -- @field openmw.util#Vector3 startingPosition The object original position
 -- @field openmw.util#Transform startingRotation The object original rotation
 -- @field #ObjectOwner owner Ownership information
@@ -372,7 +371,7 @@
 -- @field #boolean temporary If set, this spell effect is temporary and should end on its own. Either after a single application or after its duration has run out.
 -- @field #boolean affectsBaseValues If set, this spell affects the base values of affected stats, rather than modifying current values.
 -- @field #boolean stackable If set, this spell can be applied multiple times. If not set, the same spell can only be applied once from the same source (where source is determined by caster + item). In vanilla rules, consumables are stackable while spells and enchantments are not.
--- @field #string activeSpellId Uniquely identifies this active spell within the affected actor's list of active spells.
+-- @field #number activeSpellId A number uniquely identifying this active spell within the affected actor's list of active spells.
 -- @field #list<#ActiveSpellEffect> effects The active effects (@{#ActiveSpellEffect}) of this spell.
 
 ---
@@ -479,7 +478,7 @@
 -- @usage for _, item in ipairs(inventory:findAll('common_shirt_01')) do ... end
 
 
---- @{#Land}: Functions for interacting with land data. Not available in load scripts.
+--- @{#Land}: Functions for interacting with land data
 -- @field [parent=#core] #Land land
 
 ---
@@ -501,7 +500,7 @@
 -- @return #nil, #string Plugin name or nil if failed to retrieve the texture
 
 
---- @{#Magic}: spells and spell effects. Not available in load scripts.
+--- @{#Magic}: spells and spell effects
 -- @field [parent=#core] #Magic magic
 
 
@@ -679,13 +678,6 @@
 --- @{#Spells}: Spells
 -- @field [parent=#Magic] #Spells spells
 
----
--- Creates a @{#Spell} without adding it to the world database.
--- Use @{openmw_world#(world).createRecord} to add the record to the world.
--- @function [parent=#Spells] createRecordDraft
--- @param #Spell spell A Lua table with the fields of a Spell, with an optional field `template` that accepts a @{#Spell} as a base.
--- @return #Spell A strongly typed Spell record.
-
 --- List of all @{#Spell}s.
 -- @field [parent=#Spells] #list<#Spell> records A read-only list of all @{#Spell} records in the world database, may be indexed by recordId.
 -- Implements [iterables#List](iterables.html#List) of #Spell.
@@ -715,13 +707,6 @@
 
 --- @{#Enchantments}: Enchantments
 -- @field [parent=#Magic] #Enchantments enchantments
-
----
--- Creates an @{#Enchantment} without adding it to the world database.
--- Use @{openmw_world#(world).createRecord} to add the record to the world.
--- @function [parent=#Enchantments] createRecordDraft
--- @param #Enchantment enchantment A Lua table with the fields of an Enchantment, with an optional field `template` that accepts an @{#Enchantment} as a base.
--- @return #Enchantment A strongly typed Enchantment record.
 
 --- A read-only list of all @{#Enchantment} records in the world database, may be indexed by recordId.
 -- Implements [iterables#List](iterables.html#List) and [iterables#Map](iterables.html#map-iterable) of #Enchantment.
@@ -753,7 +738,6 @@
 -- @field #string id Effect ID
 -- @field #string icon Effect Icon Path
 -- @field #string name Localized name of the effect
--- @field #string description Localized description of the effect
 -- @field #string school Skill ID that is this effect's school
 -- @field #number baseCost
 -- @field openmw.util#Color color
@@ -773,16 +757,6 @@
 -- @field #string hitSound Identifier of the sound used on hit
 -- @field #string areaSound Identifier of the sound used for AOE spells
 -- @field #string boltSound Identifier of the projectile sound used for ranged spells
--- @field #boolean hasAttribute True if the effect requires an attribute parameter
--- @field #boolean hasSkill True if the effect requires a skill parameter
--- @field #boolean onSelf True if the effect can be cast on self
--- @field #boolean onTouch True if the effect can be cast on touch
--- @field #boolean onTarget True if the effect can be cast on target
--- @field #boolean unreflectable True if the effect cannot be reflected
--- @field #boolean allowsSpellmaking True if the effect is available for spellmaking
--- @field #boolean allowsEnchanting True if the effect is available for enchanting
--- @field #boolean negativeLight True if the effect casts negative light
--- @field #number speed Projectile speed
 
 
 ---
@@ -809,7 +783,7 @@
 -- @field #number magnitudeBase
 -- @field #number magnitudeModifier
 
---- @{#Sound}: Sounds and Speech. Not available in load scripts.
+--- @{#Sound}: Sounds and Speech
 -- @field [parent=#core] #Sound sound
 
 ---
@@ -941,7 +915,7 @@
 --     print(sound.fileName)
 -- end
 
---- @{#Stats}: stats. Not available in load scripts.
+--- @{#Stats}: stats
 -- @field [parent=#core] #Stats stats
 
 
@@ -1004,7 +978,7 @@
 -- @field #string failureSound VFS path to the failure sound
 -- @field #string hitSound VFS path to the hit sound
 
---- @{#Dialogue}: Dialogue. Not available in load scripts.
+--- @{#Dialogue}: Dialogue
 -- @field [parent=#core] #Dialogue dialogue
 
 ---
@@ -1308,7 +1282,7 @@
 -- @field #number NotCell The player's cell name should not start with @{#DialogueInfoCondition.cellName}
 -- @field #number NotLocal A comparison to the speaker's @{#DialogueInfoCondition.variableName} local variable
 
---- @{#Regions}: Regions. Not available in load scripts.
+--- @{#Regions}: Regions
 -- @field [parent=#core] #Regions regions
 
 ---
@@ -1316,7 +1290,6 @@
 -- @field [parent=#Regions] #list<#RegionRecord> records
 -- @usage local record = core.regions.records['bitter coast region']
 -- @usage local record = core.regions.records[1]
-
 ---
 -- Region data record
 -- @type RegionRecord
@@ -1332,38 +1305,12 @@
 -- @usage print(region.weatherProbabilities["rain"])
 
 ---
--- Set one weather probability entry for this region at runtime.
--- Throws an error if `weatherId` is not a valid weather id.
--- Value is clamped to the range [0, 100].
--- Multiple calls modify the current runtime weather table.
--- Keep total weather probabilities at 100 after modifications.
---
--- For a full table replacement, zero the current table first, then set the new values.
--- @function [parent=#RegionRecord] setProbability
--- @param self
--- @param #string weatherId Weather id to modify.
--- @param #number value New probability value.
--- @usage region:setProbability('rain', 30)
--- @usage
--- for weatherId, _ in pairs(region.weatherProbabilities) do
---     region:setProbability(weatherId, 0)
--- end
--- region:setProbability('clear', 70)
--- region:setProbability('rain', 30)
-
----
--- Reset this region's runtime weather probabilities to defaults from the loaded records.
--- @function [parent=#RegionRecord] resetProbability
--- @param self
--- @usage region:resetProbability()
-
----
 -- Region sound reference
 -- @type RegionSoundRef
 -- @field #string soundId Sound record ID
 -- @field #number chance Multiplicative percentage used to determine whether to play the sound
 
---- @{#Factions}: Factions. Not available in load scripts.
+--- @{#Factions}: Factions
 -- @field [parent=#core] #Factions factions
 
 ---
@@ -1393,7 +1340,7 @@
 -- @field #number factionReputation Required amount of faction reputation to reach this rank.
 -- @field #number factionReaction (DEPRECATED) Returns the same as factionReputation.
 
---- @{#MWScripts}: MWScripts. Not available in load scripts.
+--- @{#MWScripts}: MWScripts
 -- @field [parent=#core] #MWScript mwscripts
 
 ---
@@ -1409,7 +1356,7 @@
 -- @field #string text MWScript content
 
 
---- @{#Weather}: Weather. Not available in load scripts.
+--- @{#Weather}: Weather
 -- @field [parent=#core] #Weather weather
 
 --- List of all @{#WeatherRecord}s.

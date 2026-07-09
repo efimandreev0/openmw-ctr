@@ -50,7 +50,7 @@ namespace MWRender
         void updateHolsteredWeapon(bool showHolsteredWeapons);
         void updateHolsteredShield(bool showCarriedLeft);
         void updateQuiver();
-        VFS::Path::Normalized getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const;
+        std::string getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const;
         virtual std::string getSheathedShieldMesh(const MWWorld::ConstPtr& shield) const;
         std::string_view getHolsteredWeaponBoneName(const MWWorld::ConstPtr& weapon);
 

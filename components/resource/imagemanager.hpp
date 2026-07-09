@@ -27,7 +27,13 @@ namespace Resource
 
         /// Create or retrieve an Image
         /// Returns the dummy image if the given image is not found.
-        osg::ref_ptr<osg::Image> getImage(VFS::Path::NormalizedView path, bool disableFlip = false);
+        /// skipNswCache (3DS only): bypass the pre-swizzled .nsw texture cache
+        /// for consumers that need the ORIGINAL pixel dimensions — the bake
+        /// halves/POT-resizes images, which breaks anything doing pixel-space
+        /// UV math against the source size (MyGUI skins: menu buttons, logo,
+        /// journal art rendered cropped/zoomed otherwise). No effect on PC.
+        osg::ref_ptr<osg::Image> getImage(
+            VFS::Path::NormalizedView path, bool disableFlip = false, bool skipNswCache = false);
 
         osg::Image* getWarningImage();
 
@@ -36,6 +42,7 @@ namespace Resource
     private:
         osg::ref_ptr<osg::Image> mWarningImage;
         osg::ref_ptr<osgDB::Options> mOptions;
+        osg::ref_ptr<osgDB::Options> mOptionsNoFlip;
 
         ImageManager(const ImageManager&);
         void operator=(const ImageManager&);

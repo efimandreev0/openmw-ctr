@@ -32,6 +32,10 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaIme.h"
+#endif
+
 namespace
 {
     bool isWhitespace(MyGUI::UString::code_point c)
@@ -177,6 +181,16 @@ namespace MWGui
 
         // Set up the search term box
         mSearchTerm->eventEditSelectAccept += newDelegate(this, &Console::acceptSearchTerm);
+#if defined(__vita__) || defined(__3DS__)
+        // Console: open IME on click OR keyboard focus. Click events on
+        // EditBox don't always fire on Vita touch input, so we also bind
+        // eventKeySetFocus and gate it with mSuppressFocusIme to avoid
+        // popping the IME on programmatic focus changes.
+        mCommandLine->eventMouseButtonClick += newDelegate(this, &Console::onCommandLineClicked);
+        mSearchTerm->eventMouseButtonClick += newDelegate(this, &Console::onSearchTermClicked);
+        mCommandLine->eventKeySetFocus += newDelegate(this, &Console::onCommandLineKeyFocus);
+        mSearchTerm->eventKeySetFocus += newDelegate(this, &Console::onSearchTermKeyFocus);
+#endif
         mNextButton->eventMouseButtonClick += newDelegate(this, &Console::findNextOccurrence);
         mPreviousButton->eventMouseButtonClick += newDelegate(this, &Console::findPreviousOccurrence);
         mCaseSensitiveToggleButton->eventMouseButtonClick += newDelegate(this, &Console::toggleCaseSensitiveSearch);
@@ -203,9 +217,60 @@ namespace MWGui
     {
         // Give keyboard focus to the combo box whenever the console is
         // turned on and place it over other widgets
+#if defined(__vita__) || defined(__3DS__)
+        mSuppressFocusIme = true;
+#endif
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCommandLine);
         MyGUI::LayerManager::getInstance().upLayerItem(mMainWidget);
+
+        // Vita: don't auto-open the IME here — that would block mouse click
+        // input and prevent the player from clicking on objects to set a
+        // command target. The IME is now opened by clicking the command line.
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    void Console::onCommandLineClicked(MyGUI::Widget* /*sender*/)
+    {
+        const std::string current = mCommandLine->getOnlyText();
+        std::string cmd = Vita::openTextDialog("Console Command", current.c_str(), 256);
+        if (!cmd.empty())
+        {
+            mCommandLine->setOnlyText(cmd);
+            acceptCommand(mCommandLine);
+        }
+    }
+
+    void Console::onSearchTermClicked(MyGUI::Widget* /*sender*/)
+    {
+        const std::string current = mSearchTerm->getOnlyText();
+        std::string term = Vita::openTextDialog("Console Search", current.c_str(), 256);
+        if (!term.empty())
+        {
+            mSearchTerm->setOnlyText(term);
+            acceptSearchTerm(mSearchTerm);
+        }
+    }
+
+    void Console::onCommandLineKeyFocus(MyGUI::Widget* /*sender*/, MyGUI::Widget* /*old*/)
+    {
+        if (mSuppressFocusIme)
+        {
+            mSuppressFocusIme = false;
+            return;
+        }
+        onCommandLineClicked(nullptr);
+    }
+
+    void Console::onSearchTermKeyFocus(MyGUI::Widget* /*sender*/, MyGUI::Widget* /*old*/)
+    {
+        if (mSuppressFocusIme)
+        {
+            mSuppressFocusIme = false;
+            return;
+        }
+        onSearchTermClicked(nullptr);
+    }
+#endif
 
     void Console::print(const std::string& msg, std::string_view color)
     {
@@ -793,6 +858,9 @@ namespace MWGui
             else
                 mPtr = object;
             // User clicked on an object. Restore focus to the console command line.
+#if defined(__vita__) || defined(__3DS__)
+            mSuppressFocusIme = true;
+#endif
             MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCommandLine);
         }
         else

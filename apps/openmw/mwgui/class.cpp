@@ -6,6 +6,11 @@
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_UString.h>
 
+#if defined(__vita__) || defined(__3DS__)
+#include <MyGUI_EditBox.h>
+#include "../vita/VitaIme.h"
+#endif
+
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
@@ -566,6 +571,14 @@ namespace MWGui
         // Make sure the edit box has focus
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mEditName);
 
+#if defined(__vita__) || defined(__3DS__)
+        // Touch-to-reopen path: if the user cancels the auto-opened IME
+        // (see onOpen) and later wants to edit, tapping the field pops
+        // it again. Auto-open is the primary mechanism for controller
+        // users who can't navigate to the field.
+        mEditName->eventMouseButtonClick += MyGUI::newDelegate(this, &CreateClassDialog::onClassNameClicked);
+#endif
+
         MyGUI::Button* descriptionButton;
         getWidget(descriptionButton, "DescriptionButton");
         descriptionButton->eventMouseButtonClick += MyGUI::newDelegate(this, &CreateClassDialog::onDescriptionClicked);
@@ -832,6 +845,25 @@ namespace MWGui
         mDescription = mDescDialog->getTextInput();
         MWBase::Environment::get().getWindowManager()->removeDialog(std::move(mDescDialog));
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    void CreateClassDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        // The EditName field is not in the controller focus rotation
+        // (see onControllerButtonEvent — only Description/Back/OK are
+        // navigable). Without auto-popping the IME there is no way for
+        // a controller-only user to enter a class name. Cancel just
+        // leaves the default "#{sCustomClassName}" placeholder. Users
+        // can also touch-tap the field later to re-open (see ctor).
+        Vita::fillEditBoxFromIme(mEditName, "Class Name", 31);
+    }
+
+    void CreateClassDialog::onClassNameClicked(MyGUI::Widget* /*sender*/)
+    {
+        Vita::fillEditBoxFromIme(mEditName, "Class Name", 31);
+    }
+#endif
 
     void CreateClassDialog::onOkClicked(MyGUI::Widget* /*sender*/)
     {
@@ -1188,6 +1220,17 @@ namespace MWGui
     {
         eventDone(this);
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    void DescriptionDialog::onOpen()
+    {
+        WindowModal::onOpen();
+        // Single-purpose long-text dialog (class description). Auto-open
+        // the IME so the user can type immediately. On cancel they keep
+        // the previous text and can click the edit box to retry.
+        Vita::fillEditBoxFromIme(mTextEdit, "Class Description", 256);
+    }
+#endif
 
     void setClassImage(MyGUI::ImageBox* imageBox, const ESM::RefId& classId)
     {

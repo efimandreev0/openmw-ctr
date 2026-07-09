@@ -9,7 +9,6 @@
 #include <SDL_events.h>
 
 #include "../mwgui/mode.hpp"
-#include "../mwmechanics/attacktype.hpp"
 #include "../mwmechanics/damagesourcetype.hpp"
 #include "../mwrender/animationpriority.hpp"
 #include <components/sdlutil/events.hpp>
@@ -63,7 +62,6 @@ namespace MWBase
     public:
         virtual ~LuaManager() = default;
 
-        virtual void contentFilesLoaded() = 0;
         virtual void newGameStarted() = 0;
         virtual void gameLoaded() = 0;
         virtual void gameEnded() = 0;
@@ -78,9 +76,6 @@ namespace MWBase
         virtual void playAnimation(const MWWorld::Ptr& object, const std::string& groupname,
             const MWRender::AnimPriority& priority, int blendMask, bool autodisable, float speedmult,
             std::string_view start, std::string_view stop, float startpoint, uint32_t loops, bool loopfallback)
-            = 0;
-        virtual void animationEnded(const MWWorld::Ptr& actor, std::string_view groupname, float time, float completion,
-            std::string_view startKey, std::string_view stopKey)
             = 0;
         virtual void jailTimeServed(const MWWorld::Ptr& actor, int days) = 0;
         virtual void skillLevelUp(const MWWorld::Ptr& actor, ESM::RefId skillId, std::string_view source) = 0;
@@ -97,7 +92,6 @@ namespace MWBase
         virtual void questUpdated(const ESM::RefId& questId, int stage) = 0;
         // `arg` is either forwarded from MWGui::pushGuiMode or empty
         virtual void uiModeChanged(const MWWorld::Ptr& arg) = 0;
-        virtual void viewportResized(int width, int height) = 0;
         virtual void savePermanentStorage(const std::filesystem::path& userConfigPath) = 0;
 
         // TODO: notify LuaManager about other events
@@ -143,7 +137,7 @@ namespace MWBase
             float mSideMovement = 0;
             float mPitchChange = 0;
             float mYawChange = 0;
-            MWMechanics::AttackType mUse = MWMechanics::AttackType::NoAttack;
+            int mUse = 0;
         };
 
         virtual ActorControls* getActorControls(const MWWorld::Ptr&) const = 0;

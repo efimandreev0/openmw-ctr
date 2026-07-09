@@ -141,6 +141,7 @@ namespace MWRender
         mHUDCamera->setAllowEventFocus(false);
         mHUDCamera->setViewport(0, 0, mWidth, mHeight);
         mHUDCamera->setNodeMask(Mask_RenderToTexture);
+        mHUDCamera->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
         mHUDCamera->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
         mHUDCamera->addChild(mCanvases[0]);
         mHUDCamera->addChild(mCanvases[1]);
@@ -195,7 +196,7 @@ namespace MWRender
         if (!ext->glDisablei && ext->glDisableIndexedEXT)
             ext->glDisablei = ext->glDisableIndexedEXT;
 
-#ifdef ANDROID
+#if defined(ANDROID) || (defined(__vita__) || defined(__3DS__))
         ext->glDisablei = nullptr;
 #endif
 
@@ -252,10 +253,11 @@ namespace MWRender
     {
         for (const auto& path : mVFS->getRecursiveDirectoryIterator(Fx::Technique::sSubdir))
         {
-            std::string_view fileExt = Misc::getFileExtension(path);
-            if (path.parent().parent().empty() && fileExt == Fx::Technique::sExt)
+            const VFS::Path::NormalizedView pathView(path);
+            std::string_view fileExt = Misc::getFileExtension(pathView.value());
+            if (pathView.parent().parent().empty() && fileExt == Fx::Technique::sExt)
             {
-                mTechniqueFiles.emplace(path);
+                mTechniqueFiles.emplace(pathView.value());
             }
         }
     }
@@ -646,9 +648,7 @@ namespace MWRender
 
                 if (!pass->getTarget().empty())
                 {
-                    // FIXME: https://gitlab.com/OpenMW/openmw/-/work_items/9034
-                    std::string target = pass->getTarget();
-                    auto& renderTarget = technique->getRenderTargetsMap()[target];
+                    auto& renderTarget = technique->getRenderTargetsMap()[pass->getTarget()];
                     subPass.mSize = renderTarget.mSize;
                     subPass.mRenderTexture = renderTarget.mTarget;
                     subPass.mMipMap = renderTarget.mMipMap;
@@ -712,8 +712,7 @@ namespace MWRender
         if (auto hud = MWBase::Environment::get().getWindowManager()->getPostProcessorHud())
             hud->updateTechniques();
 
-        if (mUsePostProcessing)
-            mRendering.getSkyManager()->setSunglare(sunglare);
+        mRendering.getSkyManager()->setSunglare(sunglare);
 
         if (dirtyAttachments)
             mCanvases[frameId]->setDirtyAttachments(attachmentsToDirty);
@@ -776,7 +775,7 @@ namespace MWRender
                 return technique;
 
         std::string name;
-        if (mTechniqueFiles.contains(path))
+        if (mTechniqueFiles.find(VFS::Path::Normalized(path)) != mTechniqueFiles.end())
             name = mVFS->getStem(path);
         else
             name = path.stem();

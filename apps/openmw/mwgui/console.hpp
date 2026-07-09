@@ -82,6 +82,16 @@ namespace MWGui
 
         void commandBoxKeyPress(MyGUI::Widget* sender, MyGUI::KeyCode key, MyGUI::Char value);
         void acceptCommand(MyGUI::EditBox* sender);
+#if defined(__vita__) || defined(__3DS__)
+        // Vita: focusing the command line / search term opens the IME.
+        // mSuppressFocusIme is set to true by onOpen() / setSelectedObject()
+        // so programmatic focus changes don't pop the keyboard unexpectedly.
+        void onCommandLineClicked(MyGUI::Widget* sender);
+        void onSearchTermClicked(MyGUI::Widget* sender);
+        void onCommandLineKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* old);
+        void onSearchTermKeyFocus(MyGUI::Widget* sender, MyGUI::Widget* old);
+        bool mSuppressFocusIme = false;
+#endif
 
         enum class SearchDirection;
         void toggleCaseSensitiveSearch(MyGUI::Widget* sender);

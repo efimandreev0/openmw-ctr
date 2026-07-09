@@ -13,8 +13,11 @@ namespace VFS
     class Manager;
 
     /// @brief Register BSA and file system archives based on the given OpenMW configuration.
+    /// If vfsCacheDir is non-empty, FileSystemArchive loads/writes a per-directory
+    /// cache to skip the recursive walk on subsequent boots.
     void registerArchives(VFS::Manager* vfs, const Files::Collections& collections,
-        const std::vector<std::string>& archives, bool useLooseFiles, const ToUTF8::StatelessUtf8Encoder* encoder);
+        const std::vector<std::string>& archives, bool useLooseFiles, const ToUTF8::StatelessUtf8Encoder* encoder,
+        const std::filesystem::path& vfsCacheDir = {});
 }
 
 #endif

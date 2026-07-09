@@ -45,10 +45,14 @@ namespace SceneUtil
             osg::Matrixf mInvBindMatrix;
         };
 
+        using VertexWeight = std::pair<unsigned short, float>;
+        using VertexWeights = std::vector<VertexWeight>;
         using BoneWeight = std::pair<size_t, float>;
         using BoneWeights = std::vector<BoneWeight>;
 
         void setBoneInfo(std::vector<BoneInfo>&& bones);
+        // Convert influences in vertex and weight list per bone format
+        void setInfluences(const std::vector<VertexWeights>& influences);
         // Convert influences in bone and weight list per vertex format
         void setInfluences(const std::vector<BoneWeights>& influences);
 
@@ -84,7 +88,15 @@ namespace SceneUtil
         void cull(osg::NodeVisitor* nv);
         void updateBounds(osg::NodeVisitor* nv);
 
-        osg::ref_ptr<osg::Geometry> mGeometry[2];
+#if defined(__vita__) || defined(__3DS__)
+        // 3 slots for triple-buffer safety: vsync-off + vglUseTripleBuffering
+        // means the GPU may still be reading slot[N%K] up to 2 frames later.
+        // K=3 guarantees the slot the CPU is writing isn't being GPU-read.
+        static constexpr int kRigBufferSlots = 3;
+#else
+        static constexpr int kRigBufferSlots = 2;
+#endif
+        osg::ref_ptr<osg::Geometry> mGeometry[kRigBufferSlots];
         osg::Geometry* getGeometry(unsigned int frame) const;
 
         osg::ref_ptr<osg::Geometry> mSourceGeometry;

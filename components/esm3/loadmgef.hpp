@@ -6,10 +6,9 @@
 #include <string>
 #include <string_view>
 
-#include <components/esm/defs.hpp>
-#include <components/esm/path.hpp>
-#include <components/esm/refid.hpp>
-#include <components/misc/strings/algorithm.hpp>
+#include "components/esm/defs.hpp"
+#include "components/esm/refid.hpp"
+#include "components/misc/strings/algorithm.hpp"
 
 #include <osg/Vec4>
 
@@ -93,8 +92,7 @@ namespace ESM
 
         MEDTstruct mData;
 
-        Path mIcon;
-        Path mParticle; // Textures
+        std::string mIcon, mParticle; // Textures
         ESM::RefId mCasting, mHit, mArea; // Static
         ESM::RefId mBolt; // Weapon
         ESM::RefId mCastSound, mBoltSound, mHitSound, mAreaSound; // Sounds

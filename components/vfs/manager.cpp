@@ -103,7 +103,7 @@ namespace VFS
             return { mIndex.begin(), mIndex.end() };
         std::string normalized = Path::normalizeFilename(path);
         const auto it = mIndex.lower_bound(normalized);
-        if (it == mIndex.end() || !it->first.view().starts_with(normalized))
+        if (it == mIndex.end() || !Path::NormalizedView(it->first).value().starts_with(normalized))
             return { it, it };
         ++normalized.back();
         return { it, mIndex.lower_bound(normalized) };
@@ -114,7 +114,7 @@ namespace VFS
         if (path.value().empty())
             return { mIndex.begin(), mIndex.end() };
         const auto it = mIndex.lower_bound(path);
-        if (it == mIndex.end() || !it->first.view().starts_with(path.value()))
+        if (it == mIndex.end() || !Path::NormalizedView(it->first).value().starts_with(path.value()))
             return { it, it };
         std::string copy(path.value());
         ++copy.back();

@@ -1,5 +1,7 @@
 #include "riggeometry.hpp"
 
+#include <unordered_map>
+
 #include <osg/MatrixTransform>
 
 #include <osgUtil/CullVisitor>
@@ -30,12 +32,12 @@ namespace SceneUtil
 
     void RigGeometry::setSourceGeometry(osg::ref_ptr<osg::Geometry> sourceGeometry)
     {
-        for (unsigned int i = 0; i < 2; ++i)
+        for (unsigned int i = 0; i < kRigBufferSlots; ++i)
             mGeometry[i] = nullptr;
 
         mSourceGeometry = sourceGeometry;
 
-        for (unsigned int i = 0; i < 2; ++i)
+        for (unsigned int i = 0; i < kRigBufferSlots; ++i)
         {
             const osg::Geometry& from = *sourceGeometry;
 
@@ -50,6 +52,12 @@ namespace SceneUtil
 
             osg::Geometry& to = *mGeometry[i];
             to.setSupportsDisplayList(false);
+            // Vita: VBOs are restored, paired with kRigBufferSlots=3 ping-pong
+            // (instead of the 2-slot original) so the GPU is guaranteed to
+            // have finished reading slot N when the CPU writes slot N+3.
+            // The previous client-side fallback re-uploaded all skinned
+            // vertex/normal/tangent data through glVertexAttribPointer every
+            // frame for every NPC — measurable savings on populated cells.
             to.setUseVertexBufferObjects(true);
             to.setCullingActive(false); // make sure to disable culling since that's handled by this class
             to.setComputeBoundingBoxCallback(new CopyBoundingBoxCallback());
@@ -275,7 +283,7 @@ namespace SceneUtil
             for (unsigned int i = 0; i < getNumParents(); ++i)
                 getParent(i)->dirtyBound();
 
-            for (unsigned int i = 0; i < 2; ++i)
+            for (unsigned int i = 0; i < kRigBufferSlots; ++i)
             {
                 osg::Geometry& geom = *mGeometry[i];
                 static_cast<CopyBoundingBoxCallback*>(geom.getComputeBoundingBoxCallback())->boundingBox = _boundingBox;
@@ -331,6 +339,28 @@ namespace SceneUtil
         mData->mBones = std::move(bones);
     }
 
+    void RigGeometry::setInfluences(const std::vector<VertexWeights>& influences)
+    {
+        if (!mData)
+            mData = new InfluenceData;
+
+        std::unordered_map<unsigned short, BoneWeights> vertexToInfluences;
+        size_t index = 0;
+        for (const auto& influence : influences)
+        {
+            for (const auto& [vertex, weight] : influence)
+                vertexToInfluences[vertex].emplace_back(index, weight);
+            index++;
+        }
+
+        std::map<BoneWeights, VertexList> influencesToVertices;
+        for (const auto& [vertex, weights] : vertexToInfluences)
+            influencesToVertices[weights].emplace_back(vertex);
+
+        mData->mInfluences.reserve(influencesToVertices.size());
+        mData->mInfluences.assign(influencesToVertices.begin(), influencesToVertices.end());
+    }
+
     void RigGeometry::setInfluences(const std::vector<BoneWeights>& influences)
     {
         if (!mData)
@@ -339,7 +369,6 @@ namespace SceneUtil
         std::map<BoneWeights, VertexList> influencesToVertices;
         for (size_t i = 0; i < influences.size(); i++)
             influencesToVertices[influences[i]].emplace_back(static_cast<VertexList::value_type>(i));
-        influencesToVertices.erase(BoneWeights());
 
         mData->mInfluences.reserve(influencesToVertices.size());
         mData->mInfluences.assign(influencesToVertices.begin(), influencesToVertices.end());
@@ -394,7 +423,7 @@ namespace SceneUtil
 
     osg::Geometry* RigGeometry::getGeometry(unsigned int frame) const
     {
-        return mGeometry[frame % 2].get();
+        return mGeometry[frame % kRigBufferSlots].get();
     }
 
 }

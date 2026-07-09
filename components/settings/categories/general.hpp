@@ -27,6 +27,13 @@ namespace Settings
             makeEnumSanitizerString({ "nearest", "linear" }) };
         SettingValue<std::string> mTextureMipmap{ mIndex, "General", "texture mipmap",
             makeEnumSanitizerString({ "none", "nearest", "linear" }) };
+        // Vita-only: caps the maximum edge length to which loose textures
+        // get downsampled at load time inside imagemanager.cpp. See the
+        // ImageManager::getImage downsample block for the exact caps tied to
+        // each preset. "off" disables the cap entirely; "performance" matches
+        // the values the Vita port shipped with before the setting existed.
+        SettingValue<std::string> mVitaTextureDetail{ mIndex, "General", "vita texture detail",
+            makeEnumSanitizerString({ "performance", "balanced", "high", "off" }) };
         SettingValue<bool> mNotifyOnSavedScreenshot{ mIndex, "General", "notify on saved screenshot" };
         SettingValue<std::vector<std::string>> mPreferredLocales{ mIndex, "General", "preferred locales" };
         SettingValue<bool> mGmstOverridesL10n{ mIndex, "General", "gmst overrides l10n" };

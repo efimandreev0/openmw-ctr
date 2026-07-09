@@ -13,8 +13,10 @@
 #include <components/toutf8/toutf8.hpp>
 
 #include <algorithm>
+#include <deque>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 
 namespace VFS
 {
@@ -71,6 +73,24 @@ namespace VFS
             mFile = std::make_unique<BSAFileType>();
             mFile->open(filename);
 
+#ifdef __3DS__
+            // Diet: normalize each name inside the BSA's own string table and
+            // key the index off views into it, instead of owning every name
+            // twice more (the sorted mFiles copy + the FileMap keys) — ~4MB
+            // across a full Morrowind load order. Uncompressed BSAs only:
+            // compressed/BA2 readers hash the original name on extraction.
+            std::string buffer;
+            const auto& list = mFile->getList();
+            mResources.reserve(list.size());
+            mKeys.reserve(list.size());
+            for (const Bsa::BSAFile::FileStruct& file : list)
+            {
+                mResources.emplace_back(&file, this);
+                mKeys.push_back(makeKey(file, buffer));
+            }
+            mFiles = mKeys;
+            std::sort(mFiles.begin(), mFiles.end());
+#else
             std::string buffer;
             for (const Bsa::BSAFile::FileStruct& file : mFile->getList())
             {
@@ -79,16 +99,22 @@ namespace VFS
             }
 
             std::sort(mFiles.begin(), mFiles.end());
+#endif
         }
 
         void listResources(FileMap& out) override
         {
+#ifdef __3DS__
+            for (std::size_t i = 0; i < mResources.size(); ++i)
+                out[mKeys[i]] = &mResources[i];
+#else
             std::string buffer;
             for (auto& resource : mResources)
             {
                 std::string_view path = getUtf8(resource.mInfo->name(), buffer);
                 out[VFS::Path::Normalized(path)] = &resource;
             }
+#endif
         }
 
         bool contains(Path::NormalizedView file) const override
@@ -108,9 +134,49 @@ namespace VFS
         }
 
     private:
+#ifdef __3DS__
+        Path::NormalizedView makeKey(const Bsa::BSAFile::FileStruct& file, std::string& buffer)
+        {
+            if constexpr (std::is_same_v<BSAFileType, Bsa::BSAFile>)
+            {
+                // The name table stores each entry null-terminated (mNameSize
+                // excludes the null), so an in-place normalized name is a
+                // valid C string for NormalizedView.
+                char* p = file.mNamesBuffer->data() + file.mNameOffset;
+                bool ascii = true;
+                for (uint32_t i = 0; i < file.mNameSize; ++i)
+                {
+                    if (static_cast<unsigned char>(p[i]) >= 0x80)
+                    {
+                        ascii = false;
+                        break;
+                    }
+                }
+                if (ascii)
+                {
+                    for (uint32_t i = 0; i < file.mNameSize; ++i)
+                        p[i] = Path::normalize(p[i]);
+                    if (Path::isNormalized(std::string_view(p, file.mNameSize)))
+                        return Path::NormalizedView(static_cast<const char*>(p));
+                }
+            }
+            // Fallback (non-ASCII names needing UTF-8 conversion, odd
+            // separators, compressed archives): own a copy with a stable
+            // address.
+            const std::string_view utf8 = getUtf8(file.name(), buffer);
+            return mOwnedNames.emplace_back(Path::Normalized(utf8));
+        }
+#endif
+
         std::unique_ptr<BSAFileType> mFile;
         std::vector<BsaArchiveFile<BSAFileType>> mResources;
+#ifdef __3DS__
+        std::vector<Path::NormalizedView> mKeys; // parallel to mResources
+        std::vector<Path::NormalizedView> mFiles; // sorted, for contains()
+        std::deque<Path::Normalized> mOwnedNames; // fallback key storage
+#else
         std::vector<VFS::Path::Normalized> mFiles;
+#endif
         const ToUTF8::StatelessUtf8Encoder* mEncoder;
     };
 

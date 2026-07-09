@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 
@@ -14,7 +15,6 @@
 #include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadbody.hpp>
 #include <components/misc/weakcache.hpp>
-#include <components/vfs/pathutil.hpp>
 
 #include "idcollection.hpp"
 
@@ -103,7 +103,7 @@ namespace CSMWorld
             /// Checks if the actor is female
             bool isFemale() const;
             /// Returns the skeleton the actor should use for attaching parts to
-            VFS::Path::Normalized getSkeleton() const;
+            std::string getSkeleton() const;
             /// Retrieves the associated actor part
             ESM::RefId getPart(ESM::PartReferenceType index) const;
 

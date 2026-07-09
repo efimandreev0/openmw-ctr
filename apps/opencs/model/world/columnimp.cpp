@@ -174,10 +174,7 @@ namespace CSMWorld
         const int size = Land::LAND_NUM_VERTS * 3;
         const Land& land = record.get();
 
-        // Missing VCLR should behave like default vertex colour (white),
-        // not black. This avoids newly created/undefined edge land turning dark
-        // when a single vertex edit writes the whole array back.
-        DataType values(size, 255);
+        DataType values(size, 0);
 
         if (land.isDataLoaded(Land::DATA_VCLR))
         {

@@ -14,13 +14,23 @@ namespace MWPhysics
     static constexpr float sGroundOffset = 1.0f;
 
     // Arbitrary number. To prevent infinite loops. They shouldn't happen but it's good to be prepared.
+    // Reduced on Vita for better performance - may cause slight clipping in complex collision scenarios
+#if defined(__vita__) || defined(__3DS__)
+    static constexpr int sMaxIterations = 5;
+#else
     static constexpr int sMaxIterations = 8;
+#endif
     // Allows for more precise movement solving without getting stuck or snagging too easily.
     static constexpr float sCollisionMargin = 0.2f;
     // Allow for a small amount of penetration to prevent numerical precision issues from causing the "unstuck"ing code
     // to run unnecessarily Currently set to 0 because having the "unstuck"ing code run whenever possible prevents some
     // glitchy snagging issues
+    // Increased on Vita to reduce unstuck calculations for better performance
+#if defined(__vita__) || defined(__3DS__)
+    static constexpr float sAllowedPenetration = 0.5f;
+#else
     static constexpr float sAllowedPenetration = 0.0f;
+#endif
 }
 
 #endif

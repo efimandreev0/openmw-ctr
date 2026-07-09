@@ -14,10 +14,9 @@
 #include <components/misc/strings/algorithm.hpp>
 #include <components/translation/translation.hpp>
 
-#include "../mwscript/compilercontext.hpp"
 #include "../mwworld/ptr.hpp"
 
-#include "keywordsearch.hpp"
+#include "../mwscript/compilercontext.hpp"
 
 namespace ESM
 {
@@ -31,7 +30,11 @@ namespace MWDialogue
         struct ActorKnownTopicInfo
         {
             int mFlags;
-            const ESM::DialInfo* mInfo;
+            // Topic ids referenced by the answer's response text, computed
+            // eagerly for Exhausted topics during the scan. Storing the
+            // DialInfo pointer instead (as upstream does) would dangle on the
+            // 3DS, where INFO lists are rematerialized through an LRU.
+            std::vector<ESM::RefId> mResponseTopicRefs;
         };
 
         std::set<ESM::RefId> mKnownTopics; // Those are the topics the player knows.
@@ -41,11 +44,9 @@ namespace MWDialogue
         ModFactionReactionMap mChangedFactionReaction;
 
         std::map<ESM::RefId, ActorKnownTopicInfo> mActorKnownTopics;
+        bool mActorKnownTopicsDirty = true;
 
         Translation::Storage& mTranslationDataStorage;
-        mutable bool mKeywordSearchInitialized{ false };
-        mutable MWDialogue::KeywordSearch mKeywordSearch;
-
         MWScript::CompilerContext mCompilerContext;
         Compiler::StreamErrorHandler mErrorHandler;
 
@@ -63,8 +64,7 @@ namespace MWDialogue
         int mCurrentDisposition;
         int mPermanentDispositionChange;
 
-        const MWDialogue::KeywordSearch& getKeywordSearch() const;
-        std::vector<ESM::RefId> parseTopicIdsFromText(const std::string& text) const;
+        std::vector<ESM::RefId> parseTopicIdsFromText(const std::string& text);
         void addTopicsFromText(const std::string& text);
 
         void updateActorKnownTopics();

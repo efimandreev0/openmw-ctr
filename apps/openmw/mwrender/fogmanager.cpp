@@ -57,6 +57,12 @@ namespace MWRender
         }
         else
         {
+#if defined(__vita__) || defined(__3DS__)
+            // Always finish fog fade before the far-plane cull so geometry doesn't pop against the frustum edge.
+            const float effectiveDepth = std::max(fogDepth, 0.3f);
+            mLandFogEnd = viewDistance * 0.95f;
+            mLandFogStart = mLandFogEnd * (1.0f - effectiveDepth);
+#else
             if (fogDepth == 0.0)
             {
                 mLandFogStart = 0.0f;
@@ -67,6 +73,7 @@ namespace MWRender
                 mLandFogStart = viewDistance * (1 - fogDepth);
                 mLandFogEnd = viewDistance;
             }
+#endif
             mUnderwaterFogStart = std::min(viewDistance, 7168.f) * (1 - underwaterFog);
             mUnderwaterFogEnd = std::min(viewDistance, 7168.f);
         }
@@ -81,6 +88,20 @@ namespace MWRender
     float FogManager::getFogEnd(bool isUnderwater) const
     {
         return isUnderwater ? mUnderwaterFogEnd : mLandFogEnd;
+    }
+
+    void FogManager::rescaleToViewDistance(float newViewDistance)
+    {
+        if (mLandFogEnd > 0.f && mLandFogEnd < std::numeric_limits<float>::max())
+        {
+            float ratio = mLandFogStart / mLandFogEnd;
+#if defined(__vita__) || defined(__3DS__)
+            mLandFogEnd = newViewDistance * 0.95f;
+#else
+            mLandFogEnd = newViewDistance;
+#endif
+            mLandFogStart = mLandFogEnd * ratio;
+        }
     }
 
     osg::Vec4f FogManager::getFogColor(bool isUnderwater) const

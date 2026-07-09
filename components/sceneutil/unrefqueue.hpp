@@ -24,6 +24,11 @@ namespace SceneUtil
         /// thus unreferencing them. Call from the main thread.
         void flush(SceneUtil::WorkQueue& workQueue);
 
+        /// Synchronously clear all queued objects on the calling thread.
+        /// Use during cell transitions on memory-constrained platforms (Vita)
+        /// to immediately release references before clearing the resource cache.
+        void flushImmediate() { mObjects.clear(); }
+
         std::size_t getSize() const { return mObjects.size(); }
 
     private:

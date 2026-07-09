@@ -4,10 +4,8 @@
 #include <cstdint>
 #include <string>
 
-#include <components/esm/defs.hpp>
-#include <components/esm/path.hpp>
-#include <components/esm/refid.hpp>
-
+#include "components/esm/defs.hpp"
+#include "components/esm/refid.hpp"
 #include "spelllist.hpp"
 
 namespace ESM
@@ -25,8 +23,7 @@ namespace ESM
 
         uint32_t mRecordFlags;
         RefId mId;
-        std::string mName, mDescription;
-        Path mTexture;
+        std::string mName, mDescription, mTexture;
 
         // List of powers and abilities that come with this birth sign.
         SpellList mPowers;

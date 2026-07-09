@@ -51,6 +51,9 @@ namespace MWGui
         void updateLabels();
         void onTypeButtonClicked(MyGUI::Widget* sender);
         void onAccept(MyGUI::EditBox* sender);
+#if defined(__vita__) || defined(__3DS__)
+        void onNameClicked(MyGUI::Widget* sender);
+#endif
 
         std::unique_ptr<ItemSelectionDialog> mItemSelectionDialog;
 

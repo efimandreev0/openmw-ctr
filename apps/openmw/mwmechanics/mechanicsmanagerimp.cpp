@@ -44,6 +44,16 @@
 namespace
 {
 
+    float getFightDispositionBias(float disposition)
+    {
+        static const float fFightDispMult = MWBase::Environment::get()
+                                                .getESMStore()
+                                                ->get<ESM::GameSetting>()
+                                                .find("fFightDispMult")
+                                                ->mValue.getFloat();
+        return ((50.f - disposition) * fFightDispMult);
+    }
+
     void getPersuasionRatings(
         const MWMechanics::NpcStats& stats, float& rating1, float& rating2, float& rating3, bool player)
     {
@@ -846,6 +856,7 @@ namespace MWMechanics
         mUpdatePlayer = true;
         mClassSelected = true;
         mRaceSelected = true;
+        mAI = true;
     }
 
     namespace
@@ -1850,6 +1861,53 @@ namespace MWMechanics
         mRaceSelected = false;
     }
 
+    bool MechanicsManager::isAggressive(const MWWorld::Ptr& ptr, const MWWorld::Ptr& target)
+    {
+        // If already in combat with target, consider aggressive
+        if (ptr.getClass().getCreatureStats(ptr).getAiSequence().isInCombat(target))
+            return true;
+
+        // Don't become aggressive if a calm effect is active, since it would cause combat to cycle on/off as
+        // combat is activated here and then canceled by the calm effect
+        if ((ptr.getClass().isNpc()
+                && ptr.getClass()
+                        .getCreatureStats(ptr)
+                        .getMagicEffects()
+                        .getOrDefault(ESM::MagicEffect::CalmHumanoid)
+                        .getMagnitude()
+                    > 0)
+            || (!ptr.getClass().isNpc()
+                && ptr.getClass()
+                        .getCreatureStats(ptr)
+                        .getMagicEffects()
+                        .getOrDefault(ESM::MagicEffect::CalmCreature)
+                        .getMagnitude()
+                    > 0))
+            return false;
+
+        int disposition = 50;
+        if (ptr.getClass().isNpc())
+            disposition = getDerivedDisposition(ptr);
+
+        int fight = ptr.getClass().getCreatureStats(ptr).getAiSetting(AiSetting::Fight).getModified()
+            + static_cast<int>(
+                getFightDistanceBias(ptr, target) + getFightDispositionBias(static_cast<float>(disposition)));
+
+        if (ptr.getClass().isNpc() && target.getClass().isNpc())
+        {
+            if (target.getClass().getNpcStats(target).isWerewolf()
+                || (target == getPlayer()
+                    && MWBase::Environment::get().getWorld()->getGlobalInt(MWWorld::Globals::sPCKnownWerewolf)))
+            {
+                const ESM::GameSetting* iWerewolfFightMod
+                    = MWBase::Environment::get().getESMStore()->get<ESM::GameSetting>().find("iWerewolfFightMod");
+                fight += iWerewolfFightMod->mValue.getInteger();
+            }
+        }
+
+        return (fight >= 100);
+    }
+
     void MechanicsManager::resurrect(const MWWorld::Ptr& ptr)
     {
         CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
@@ -1981,8 +2039,7 @@ namespace MWMechanics
             = MWBase::Environment::get().getESMStore()->get<ESM::Skill>().find(ESM::Skill::Acrobatics);
         MWMechanics::NpcStats& stats = actor.getClass().getNpcStats(actor);
         auto& skill = stats.getSkill(acrobatics->mId);
-        skill.setBase(skill.getBase(), true);
-        skill.setModifier(acrobatics->mWerewolfValue - skill.getBase());
+        skill.setModifier(acrobatics->mWerewolfValue - skill.getModified());
     }
 
     void MechanicsManager::cleanupSummonedCreature(ESM::RefNum creature)
@@ -2009,6 +2066,11 @@ namespace MWMechanics
     GreetingState MechanicsManager::getGreetingState(const MWWorld::Ptr& ptr) const
     {
         return mActors.getGreetingState(ptr);
+    }
+
+    bool MechanicsManager::isTurningToPlayer(const MWWorld::Ptr& ptr) const
+    {
+        return mActors.isTurningToPlayer(ptr);
     }
 
     void MechanicsManager::fastForwardAi() const

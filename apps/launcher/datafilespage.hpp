@@ -172,9 +172,6 @@ namespace Launcher
         QStringList selectedFilePaths() const;
         QList<Config::SettingValue> selectedArchivePaths() const;
         QList<Config::SettingValue> selectedDirectoriesPaths() const;
-
-    protected:
-        bool eventFilter(QObject* obj, QEvent* event) override;
     };
 }
 #endif

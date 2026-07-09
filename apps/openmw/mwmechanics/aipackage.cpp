@@ -317,15 +317,23 @@ void MWMechanics::AiPackage::openDoors(const MWWorld::Ptr& actor)
     }
 }
 
+namespace
+{
+    std::map<const ESM::Pathgrid*, std::unique_ptr<MWMechanics::PathgridGraph>> sPathgridGraphCache;
+}
+
+void MWMechanics::AiPackage::clearPathgridCache()
+{
+    sPathgridGraphCache.clear();
+}
+
 const MWMechanics::PathgridGraph& MWMechanics::AiPackage::getPathGridGraph(const ESM::Pathgrid* pathgrid) const
 {
     if (!pathgrid || pathgrid->mPoints.empty())
         return PathgridGraph::sEmpty;
-    // static cache is OK for now, pathgrids can never change during runtime
-    static std::map<const ESM::Pathgrid*, std::unique_ptr<MWMechanics::PathgridGraph>> cache;
-    auto found = cache.find(pathgrid);
-    if (found == cache.end())
-        found = cache.emplace(pathgrid, std::make_unique<MWMechanics::PathgridGraph>(*pathgrid)).first;
+    auto found = sPathgridGraphCache.find(pathgrid);
+    if (found == sPathgridGraphCache.end())
+        found = sPathgridGraphCache.emplace(pathgrid, std::make_unique<MWMechanics::PathgridGraph>(*pathgrid)).first;
     return *found->second.get();
 }
 

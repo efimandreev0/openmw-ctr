@@ -16,6 +16,10 @@
 #include <osgAnimation/UpdateBone>
 
 #include <osgParticle/ParticleSystem>
+#if defined(__vita__) || defined(__3DS__)
+#include <osgParticle/ParticleProcessor>
+#include <osgParticle/ParticleSystemUpdater>
+#endif
 
 #include <osgUtil/IncrementalCompileOperation>
 
@@ -101,9 +105,10 @@ namespace
     {
     public:
         /// @param mask The node mask to set on ParticleSystem nodes.
-        InitParticlesVisitor(unsigned int mask)
+        InitParticlesVisitor(unsigned int mask, bool allowParticles = false)
             : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
             , mMask(mask)
+            , mAllowParticles(allowParticles)
         {
         }
 
@@ -118,6 +123,14 @@ namespace
         {
             if (osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(&drw))
             {
+#if defined(__vita__) || defined(__3DS__)
+                if (!mAllowParticles)
+                {
+                    partsys->setNodeMask(0);
+                    partsys->setUpdateCallback(nullptr);
+                    return;
+                }
+#endif
                 if (isWorldSpaceParticleSystem(partsys))
                 {
                     partsys->addUpdateCallback(new InitWorldSpaceParticlesCallback);
@@ -126,8 +139,25 @@ namespace
             }
         }
 
+#if defined(__vita__) || defined(__3DS__)
+        void apply(osg::Node& node) override
+        {
+            if (!mAllowParticles)
+            {
+                if (dynamic_cast<osgParticle::ParticleSystemUpdater*>(&node)
+                    || dynamic_cast<osgParticle::ParticleProcessor*>(&node))
+                {
+                    node.setNodeMask(0);
+                    node.setUpdateCallback(nullptr);
+                }
+            }
+            traverse(node);
+        }
+#endif
+
     private:
         unsigned int mMask;
+        bool mAllowParticles;
     };
 }
 
@@ -448,19 +478,39 @@ namespace Resource
         , mImageManager(imageManager)
         , mNifFileManager(nifFileManager)
         , mBgsmFileManager(bgsmFileManager)
+#if defined(__vita__) || defined(__3DS__)
+        // Trilinear (LINEAR_MIPMAP_LINEAR) costs ~2× bilinear bandwidth on SGX543
+        // and is imperceptible at 640×368. NEAREST mip selection is the right
+        // default for the platform.
+        , mMinFilter(osg::Texture::LINEAR_MIPMAP_NEAREST)
+#else
         , mMinFilter(osg::Texture::LINEAR_MIPMAP_LINEAR)
+#endif
         , mMagFilter(osg::Texture::LINEAR)
         , mMaxAnisotropy(1.f)
         , mParticleSystemMask(~0u)
+        , mLightingMethod(SceneUtil::LightingMethod::FFP)
     {
     }
 
-    void SceneManager::recreateShaders(
-        osg::ref_ptr<osg::Node> node, const std::string& shaderPrefix, const osg::Program* programTemplate)
+    void SceneManager::setForceShaders(bool force)
+    {
+        mForceShaders = force;
+    }
+
+    bool SceneManager::getForceShaders() const
+    {
+        return mForceShaders;
+    }
+
+    void SceneManager::recreateShaders(osg::ref_ptr<osg::Node> node, const std::string& shaderPrefix,
+        bool forceShadersForNode, const osg::Program* programTemplate)
     {
         osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor(createShaderVisitor(shaderPrefix));
         shaderVisitor->setAllowedToModifyStateSets(false);
         shaderVisitor->setProgramTemplate(programTemplate);
+        if (forceShadersForNode)
+            shaderVisitor->setForceShaders(true);
         node->accept(*shaderVisitor);
     }
 
@@ -469,6 +519,16 @@ namespace Resource
         osg::ref_ptr<Shader::ReinstateRemovedStateVisitor> reinstateRemovedStateVisitor
             = new Shader::ReinstateRemovedStateVisitor(false);
         node->accept(*reinstateRemovedStateVisitor);
+    }
+
+    void SceneManager::setClampLighting(bool clamp)
+    {
+        mClampLighting = clamp;
+    }
+
+    bool SceneManager::getClampLighting() const
+    {
+        return mClampLighting;
     }
 
     void SceneManager::setAutoUseNormalMaps(bool use)
@@ -496,14 +556,36 @@ namespace Resource
         mSpecularMapPattern = pattern;
     }
 
-    void SceneManager::setSupportsClusteredLighting(bool supported)
+    void SceneManager::setApplyLightingToEnvMaps(bool apply)
     {
-        mSupportsClusteredLighting = supported;
+        mApplyLightingToEnvMaps = apply;
     }
 
-    bool SceneManager::isClusteredLightingSupported() const
+    void SceneManager::setSupportedLightingMethods(const SceneUtil::LightManager::SupportedMethods& supported)
     {
-        return mSupportsClusteredLighting;
+        mSupportedLightingMethods = supported;
+    }
+
+    bool SceneManager::isSupportedLightingMethod(SceneUtil::LightingMethod method) const
+    {
+        return mSupportedLightingMethods[static_cast<int>(method)];
+    }
+
+    void SceneManager::setLightingMethod(SceneUtil::LightingMethod method)
+    {
+        mLightingMethod = method;
+
+        if (mLightingMethod == SceneUtil::LightingMethod::SingleUBO)
+        {
+            osg::ref_ptr<osg::Program> program = new osg::Program;
+            program->addBindUniformBlock("LightBufferBinding", static_cast<int>(UBOBinding::LightBuffer));
+            mShaderManager->setProgramTemplate(program);
+        }
+    }
+
+    SceneUtil::LightingMethod SceneManager::getLightingMethod() const
+    {
+        return mLightingMethod;
     }
 
     void SceneManager::setConvertAlphaTestToAlphaToCoverage(bool convert)
@@ -868,6 +950,9 @@ namespace Resource
         const char* env = getenv("OPENMW_OPTIMIZE");
         unsigned int options
             = Optimizer::FLATTEN_STATIC_TRANSFORMS | Optimizer::REMOVE_REDUNDANT_NODES | Optimizer::MERGE_GEOMETRY;
+#if defined(__vita__) || defined(__3DS__)
+        options |= Optimizer::STATIC_OBJECT_DETECTION | Optimizer::MAKE_FAST_GEOMETRY;
+#endif
         if (env)
         {
             std::string str(env);
@@ -927,17 +1012,27 @@ namespace Resource
             Log(Debug::Warning) << "Failed to load error marker:" << e.what()
                                 << ", using embedded marker_error instead";
         }
+#if defined(__vita__) || defined(__3DS__)
+        // No .osgt serializer on Vita — return empty node
+        return new osg::Node();
+#else
         Files::IMemStream file(ErrorMarker::sValue.data(), ErrorMarker::sValue.size());
         constexpr VFS::Path::NormalizedView errorMarker("error_marker.osgt");
         return loadNonNif(errorMarker, file, mImageManager);
+#endif
     }
 
     void SceneManager::loadSelectionMarker(
         osg::ref_ptr<osg::Group> parentNode, const char* markerData, long long markerSize) const
     {
+#if defined(__vita__) || defined(__3DS__)
+        // No .osgt serializer on Vita — add empty node
+        parentNode->addChild(new osg::Node());
+#else
         Files::IMemStream file(markerData, markerSize);
         constexpr VFS::Path::NormalizedView selectionMarker("selectionmarker.osgt");
         parentNode->addChild(loadNonNif(selectionMarker, file, mImageManager));
+#endif
     }
 
     osg::ref_ptr<osg::Node> SceneManager::cloneErrorMarker()
@@ -999,9 +1094,9 @@ namespace Resource
         }
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path, bool allowParticles)
     {
-        return getInstance(getTemplate(path));
+        return getInstance(getTemplate(path), allowParticles);
     }
 
     osg::ref_ptr<osg::Node> SceneManager::cloneNode(const osg::Node* base)
@@ -1025,23 +1120,24 @@ namespace Resource
         return cloned;
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(const osg::Node* base)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(const osg::Node* base, bool allowParticles)
     {
         osg::ref_ptr<osg::Node> cloned = cloneNode(base);
         // we can skip any scene graphs without update callbacks since we know that particle emitters will have an
         // update callback set
         if (cloned->getNumChildrenRequiringUpdateTraversal() > 0)
         {
-            InitParticlesVisitor visitor(mParticleSystemMask);
+            InitParticlesVisitor visitor(mParticleSystemMask, allowParticles);
             cloned->accept(visitor);
         }
 
         return cloned;
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path, osg::Group* parentNode)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(
+        VFS::Path::NormalizedView path, osg::Group* parentNode, bool allowParticles)
     {
-        osg::ref_ptr<osg::Node> cloned = getInstance(path);
+        osg::ref_ptr<osg::Node> cloned = getInstance(path, allowParticles);
         attachTo(cloned, parentNode);
         return cloned;
     }
@@ -1197,11 +1293,13 @@ namespace Resource
     {
         osg::ref_ptr<Shader::ShaderVisitor> shaderVisitor(
             new Shader::ShaderVisitor(*mShaderManager.get(), *mImageManager, shaderPrefix));
+        shaderVisitor->setForceShaders(mForceShaders);
         shaderVisitor->setAutoUseNormalMaps(mAutoUseNormalMaps);
         shaderVisitor->setNormalMapPattern(mNormalMapPattern);
         shaderVisitor->setNormalHeightMapPattern(mNormalHeightMapPattern);
         shaderVisitor->setAutoUseSpecularMaps(mAutoUseSpecularMaps);
         shaderVisitor->setSpecularMapPattern(mSpecularMapPattern);
+        shaderVisitor->setApplyLightingToEnvMaps(mApplyLightingToEnvMaps);
         shaderVisitor->setConvertAlphaTestToAlphaToCoverage(mConvertAlphaTestToAlphaToCoverage);
         shaderVisitor->setAdjustCoverageForAlphaTest(mAdjustCoverageForAlphaTest);
         shaderVisitor->setSupportsNormalsRT(mSupportsNormalsRT);

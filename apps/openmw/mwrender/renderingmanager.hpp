@@ -63,9 +63,6 @@ namespace SceneUtil
     class WorkQueue;
     class LightManager;
     class UnrefQueue;
-    class PerViewUniformStateUpdater;
-    class SharedUniformStateUpdater;
-    class StateUpdater;
 }
 
 namespace DetourNavigator
@@ -88,6 +85,9 @@ namespace Debug
 
 namespace MWRender
 {
+    class StateUpdater;
+    class SharedUniformStateUpdater;
+    class PerViewUniformStateUpdater;
     class IntersectionVisitorWithIgnoreList;
 
     class EffectManager;
@@ -121,6 +121,11 @@ namespace MWRender
         MWRender::Objects& getObjects() override;
 
         Resource::ResourceSystem* getResourceSystem();
+
+        /// Immediately release all objects queued for deferred unreferencing.
+        /// On Vita, call before clearCache() during cell transitions to ensure
+        /// old scene graph nodes release their texture/mesh references.
+        void flushUnrefQueueImmediate();
 
         SceneUtil::WorkQueue* getWorkQueue();
         Terrain::World* getTerrain();
@@ -164,6 +169,11 @@ namespace MWRender
 
         void setWaterEnabled(bool enabled);
         void setWaterHeight(float level);
+        // Re-anchor the water plane to a cell. Normally done implicitly via
+        // addCell() at cell-load time; needed explicitly on Vita when the
+        // keep-came-from path persists exterior cells across an interior visit
+        // (the cell isn't re-added on exit so addCell never fires).
+        void setWaterCell(const MWWorld::CellStore* store);
 
         /// Take a screenshot of w*h onto the given image, not including the GUI.
         void screenshot(osg::Image* image, int w, int h);
@@ -179,12 +189,12 @@ namespace MWRender
         };
 
         RayResult castRay(const osg::Vec3f& origin, const osg::Vec3f& dest, bool ignorePlayer,
-            bool ignoreActors = false, bool ignoreTerrain = false, std::span<const MWWorld::Ptr> ignoreList = {});
+            bool ignoreActors = false, std::span<const MWWorld::Ptr> ignoreList = {});
 
         /// Return the object under the mouse cursor / crosshair position, given by nX and nY normalized screen
         /// coordinates, where (0,0) is the top left corner.
-        RayResult castCameraToViewportRay(const float nX, const float nY, float maxDistance, bool ignorePlayer,
-            bool ignoreActors = false, bool ignoreTerrain = false);
+        RayResult castCameraToViewportRay(
+            const float nX, const float nY, float maxDistance, bool ignorePlayer, bool ignoreActors = false);
 
         /// Get normalized screen coordinates of the bounding box's summit, where (0,0) is the top left corner
         osg::Vec2f getScreenCoords(const osg::BoundingBox& bb);
@@ -279,13 +289,6 @@ namespace MWRender
 
         void setNavMeshMode(Settings::NavMeshRenderMode value);
 
-        void setProjectionOffset(const osg::Vec2f& offset)
-        {
-            mProjectionOffset = offset;
-            mUpdateProjectionMatrix = true;
-        }
-        osg::Vec2f getProjectionOffset() const { return mProjectionOffset; }
-
     private:
         void updateTextureFiltering();
         void updateAmbient();
@@ -309,7 +312,7 @@ namespace MWRender
         const bool mSkyBlending;
 
         osg::ref_ptr<osgUtil::IntersectionVisitor> getIntersectionVisitor(osgUtil::Intersector* intersector,
-            bool ignorePlayer, bool ignoreActors, bool ignoreTerrain, std::span<const MWWorld::Ptr> ignoreList = {});
+            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList = {});
 
         osg::ref_ptr<IntersectionVisitorWithIgnoreList> mIntersectionVisitor;
 
@@ -317,6 +320,7 @@ namespace MWRender
         osg::ref_ptr<osg::Group> mRootNode;
         osg::ref_ptr<SceneUtil::LightManager> mSceneRoot;
         Resource::ResourceSystem* mResourceSystem;
+        SceneUtil::UnrefQueue& mUnrefQueue;
 
         osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
 
@@ -346,9 +350,9 @@ namespace MWRender
         std::unique_ptr<Camera> mCamera;
         osg::ref_ptr<Debug::DebugDrawer> mDebugDraw;
 
-        osg::ref_ptr<SceneUtil::StateUpdater> mStateUpdater;
-        osg::ref_ptr<SceneUtil::SharedUniformStateUpdater> mSharedUniformStateUpdater;
-        osg::ref_ptr<SceneUtil::PerViewUniformStateUpdater> mPerViewUniformStateUpdater;
+        osg::ref_ptr<StateUpdater> mStateUpdater;
+        osg::ref_ptr<SharedUniformStateUpdater> mSharedUniformStateUpdater;
+        osg::ref_ptr<PerViewUniformStateUpdater> mPerViewUniformStateUpdater;
 
         osg::Vec4f mAmbientColor;
         float mNightEyeFactor;
@@ -361,7 +365,6 @@ namespace MWRender
         float mFirstPersonFieldOfView;
         bool mUpdateProjectionMatrix = false;
         bool mNight = false;
-        osg::Vec2f mProjectionOffset;
         const MWWorld::GroundcoverStore& mGroundCoverStore;
 
         void operator=(const RenderingManager&);

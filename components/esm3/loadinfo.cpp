@@ -1,5 +1,6 @@
 #include "loadinfo.hpp"
 
+#include "ctrstrpool.hpp"
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
@@ -62,8 +63,12 @@ namespace ESM
                     mSound = esm.getHString();
                     break;
                 case SREC_NAME:
-                    mResponse = esm.getHString();
+                {
+                    std::string s = esm.getHString();
+                    if (!CtrStrPool::instance().put(s, mResponseOfs, mResponseLen))
+                        mResponse = std::move(s);
                     break;
+                }
                 case fourCC("SCVR"):
                 {
                     auto filter = DialogueCondition::load(esm, mId);
@@ -72,8 +77,12 @@ namespace ESM
                     break;
                 }
                 case fourCC("BNAM"):
-                    mResultScript = esm.getHString();
+                {
+                    std::string s = esm.getHString();
+                    if (!CtrStrPool::instance().put(s, mResultOfs, mResultLen))
+                        mResultScript = std::move(s);
                     break;
+                }
                 case fourCC("QSTN"):
                     mQuestStatus = QS_Name;
                     esm.skipHSub();
@@ -140,6 +149,20 @@ namespace ESM
         }
     }
 
+    std::string DialInfo::getResponse() const
+    {
+        if (mResponseLen != 0)
+            return CtrStrPool::instance().get(mResponseOfs, mResponseLen);
+        return mResponse;
+    }
+
+    std::string DialInfo::getResultScript() const
+    {
+        if (mResultLen != 0)
+            return CtrStrPool::instance().get(mResultOfs, mResultLen);
+        return mResultScript;
+    }
+
     void DialInfo::blank()
     {
         mData = {};
@@ -156,6 +179,8 @@ namespace ESM
         mSound.clear();
         mResponse.clear();
         mResultScript.clear();
+        mResponseOfs = mResponseLen = 0;
+        mResultOfs = mResultLen = 0;
         mFactionLess = false;
         mQuestStatus = QS_None;
     }

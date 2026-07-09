@@ -1,9 +1,10 @@
 #ifndef OPENMW_ESM_STAT_H
 #define OPENMW_ESM_STAT_H
 
-#include <components/esm/defs.hpp>
-#include <components/esm/path.hpp>
-#include <components/esm/refid.hpp>
+#include <string>
+
+#include "components/esm/defs.hpp"
+#include "components/esm/refid.hpp"
 
 namespace ESM
 {
@@ -32,7 +33,7 @@ namespace ESM
 
         uint32_t mRecordFlags;
         RefId mId;
-        Path mModel;
+        std::string mModel;
 
         void load(ESMReader& esm, bool& isDeleted);
         void save(ESMWriter& esm, bool isDeleted = false) const;

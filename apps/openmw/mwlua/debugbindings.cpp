@@ -78,7 +78,8 @@ namespace MWLua
                     ->getSceneManager()
                     ->getShaderManager()
                     .triggerShaderReload();
-                world->getPostProcessor()->triggerShaderReload();
+                if (auto* pp = world->getPostProcessor())
+                    pp->triggerShaderReload();
             });
         };
 
@@ -90,7 +91,8 @@ namespace MWLua
                     ->getSceneManager()
                     ->getShaderManager()
                     .setHotReloadEnabled(value);
-                world->getPostProcessor()->mEnableLiveReload = value;
+                if (auto* pp = world->getPostProcessor())
+                    pp->mEnableLiveReload = value;
             });
         };
 

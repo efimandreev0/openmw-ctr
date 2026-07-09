@@ -95,7 +95,12 @@ namespace MyGUIPlatform
         if (!mImageManager)
             throw std::runtime_error("No imagemanager set");
 
-        osg::ref_ptr<osg::Image> image(mImageManager->getImage(VFS::Path::Normalized(fname)));
+        // skipNswCache: MyGUI skins address textures in PIXEL coordinates of
+        // the source image — the 3DS .nsw bake halves/POT-resizes, which made
+        // the main-menu buttons and logo render cropped and zoomed. GUI art
+        // must decode at its true size (no-op on PC).
+        osg::ref_ptr<osg::Image> image(
+            mImageManager->getImage(VFS::Path::Normalized(fname), /*disableFlip=*/false, /*skipNswCache=*/true));
         mTexture = new osg::Texture2D(image);
         mTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
         mTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
@@ -133,6 +138,8 @@ namespace MyGUIPlatform
     {
         if (!mLockedImage.valid())
             throw std::runtime_error("Texture not locked");
+
+        mLockedImage->flipVertical();
 
         // mTexture might be in use by the draw thread, so create a new texture instead and use that.
         osg::ref_ptr<osg::Texture2D> newTexture = new osg::Texture2D;

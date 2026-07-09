@@ -1,9 +1,13 @@
 #include "messagebundles.hpp"
 
+#include <algorithm>
 #include <charconv>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <span>
 
 #include <unicode/calendar.h>
@@ -58,7 +62,11 @@ namespace L10n
         }
 
         template <class T>
+#if defined(__vita__) || defined(__3DS__)
+        using StringMap = std::unordered_map<std::string, T, Misc::StringUtils::StringHash, std::equal_to<std::string>>;
+#else
         using StringMap = std::unordered_map<std::string, T, Misc::StringUtils::StringHash, std::equal_to<>>;
+#endif
 
         void loadLocaleYaml(const YAML::Node& data, const icu::Locale& lang, StringMap<icu::MessageFormat>& bundle)
         {
@@ -199,6 +207,131 @@ namespace L10n
             return parseMessageFormat(english, key, formatString, "gmst");
         }
 
+        std::string doubleToString(double number)
+        {
+            if (std::abs(number) < 1e15 && number == std::floor(number))
+                return std::to_string(static_cast<long long>(number));
+            char buffer[32];
+            const int length = std::snprintf(buffer, sizeof(buffer), "%.6g", number);
+            return length > 0 ? std::string(buffer, static_cast<std::size_t>(length)) : std::string();
+        }
+
+        std::string formattableToString(const icu::Formattable& value)
+        {
+            switch (value.getType())
+            {
+                case icu::Formattable::kLong:
+                    return std::to_string(value.getLong());
+                case icu::Formattable::kInt64:
+                    return std::to_string(value.getInt64());
+                case icu::Formattable::kDouble:
+                    return doubleToString(value.getDouble());
+                case icu::Formattable::kString:
+                {
+                    std::string result;
+                    icu::ErrorCode status;
+                    value.getString(status).toUTF8String(result);
+                    return result;
+                }
+                default:
+                {
+                    icu::ErrorCode status;
+                    const double number = value.getDouble(status);
+                    return status.isSuccess() ? doubleToString(number) : std::string();
+                }
+            }
+        }
+
+        // Plain-text substitution used when ICU fails to format a message. Builds
+        // without ICU locale data (Vita/3DS) can parse patterns, but formatting any
+        // number placeholder fails at format() time; substitute the arguments
+        // ourselves so the UI still shows real values. Format specifiers and
+        // plural/select subpatterns degrade to the plain argument value.
+        std::string fallbackFormat(const icu::MessageFormat& message, const std::vector<icu::UnicodeString>& argNames,
+            const std::vector<icu::Formattable>& args)
+        {
+            icu::UnicodeString patternUnicode;
+            message.toPattern(patternUnicode);
+            std::string pattern;
+            patternUnicode.toUTF8String(pattern);
+
+            std::string result;
+            result.reserve(pattern.size());
+            for (std::size_t i = 0; i < pattern.size(); ++i)
+            {
+                const char c = pattern[i];
+                if (c == '\'')
+                {
+                    if (i + 1 < pattern.size() && pattern[i + 1] == '\'')
+                    {
+                        result += '\'';
+                        ++i;
+                    }
+                    else if (i + 1 < pattern.size() && (pattern[i + 1] == '{' || pattern[i + 1] == '}'))
+                    {
+                        // ICU-quoted literal text, ends at the next apostrophe
+                        const std::size_t end = pattern.find('\'', i + 1);
+                        result.append(pattern, i + 1, end == std::string::npos ? std::string::npos : end - i - 1);
+                        if (end == std::string::npos)
+                            break;
+                        i = end;
+                    }
+                    else
+                        result += c;
+                }
+                else if (c == '{')
+                {
+                    std::size_t depth = 1;
+                    std::size_t end = i + 1;
+                    while (end < pattern.size() && depth > 0)
+                    {
+                        if (pattern[end] == '{')
+                            ++depth;
+                        else if (pattern[end] == '}')
+                            --depth;
+                        ++end;
+                    }
+                    // The argument name is the text up to the first ',' or the closing brace
+                    std::string_view group = std::string_view(pattern).substr(i + 1, end - i - (depth == 0 ? 2 : 1));
+                    std::string_view name = group.substr(0, std::min(group.find(','), group.size()));
+                    while (!name.empty() && name.front() == ' ')
+                        name.remove_prefix(1);
+                    while (!name.empty() && name.back() == ' ')
+                        name.remove_suffix(1);
+                    bool substituted = false;
+                    for (std::size_t index = 0; index < argNames.size() && index < args.size(); ++index)
+                    {
+                        std::string argName;
+                        argNames[index].toUTF8String(argName);
+                        if (argName == name)
+                        {
+                            result += formattableToString(args[index]);
+                            substituted = true;
+                            break;
+                        }
+                    }
+                    if (!substituted)
+                        result.append(pattern, i, end - i);
+                    i = end - 1;
+                }
+                else
+                    result += c;
+            }
+            return result;
+        }
+
+        void logFormatFailureOnce(std::string_view key, const char* errorName)
+        {
+            static std::mutex mutex;
+            static std::set<std::string, std::less<>> warnedKeys;
+            const std::lock_guard lock(mutex);
+            if (warnedKeys.find(key) != warnedKeys.end())
+                return;
+            warnedKeys.emplace(key);
+            Log(Debug::Error) << "Failed to format message " << key << ": " << errorName
+                              << ", falling back to plain argument substitution";
+        }
+
         std::string formatArgs(const icu::MessageFormat& message, std::string_view key,
             const std::vector<icu::UnicodeString>& argNames, const std::vector<icu::Formattable>& args)
         {
@@ -209,7 +342,13 @@ namespace L10n
                 message.format(argNames.data(), args.data(), static_cast<std::int32_t>(args.size()), result, success);
             else
                 message.format(nullptr, nullptr, static_cast<std::int32_t>(args.size()), result, success);
-            checkSuccess(success, {}, "Failed to format message ", key);
+            if (success.isFailure())
+            {
+                // Formatting runs every frame while a settings label is visible, so
+                // log the failure only once per key to keep the log readable.
+                logFormatFailureOnce(key, success.errorName());
+                return fallbackFormat(message, argNames, args);
+            }
             result.toUTF8String(resultString);
             return resultString;
         }
@@ -217,10 +356,10 @@ namespace L10n
         const icu::MessageFormat* getMessage(
             const StringMap<StringMap<icu::MessageFormat>>& bundles, std::string_view key, std::string_view localeName)
         {
-            auto iter = bundles.find(localeName);
+            auto iter = bundles.find(std::string(localeName));
             if (iter != bundles.end())
             {
-                auto message = iter->second.find(key);
+                auto message = iter->second.find(std::string(key));
                 if (message != iter->second.end())
                     return &(message->second);
             }
@@ -281,11 +420,11 @@ namespace L10n
         }
         if (localeName == "gmst" && mGmstLoader)
         {
-            if (!mGmsts.contains(key))
+            if (mGmsts.find(std::string(key)) == mGmsts.end())
                 return nullptr;
             sharedLock.unlock();
             std::unique_lock lock(mMutex);
-            auto found = mGmsts.find(key);
+            auto found = mGmsts.find(std::string(key));
             // Another thread deleted the key, retry mBundles
             if (found == mGmsts.end())
                 return getMessage(mBundles, key, localeName);
@@ -294,7 +433,7 @@ namespace L10n
             mGmsts.erase(found);
             if (message)
             {
-                auto iter = mBundles.find(localeName);
+                auto iter = mBundles.find(std::string(localeName));
                 if (iter == mBundles.end())
                     iter = mBundles.emplace(localeName, StringMap<icu::MessageFormat>()).first;
                 return &iter->second.emplace(key, *message).first->second;

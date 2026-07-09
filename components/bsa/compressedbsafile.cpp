@@ -27,7 +27,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cerrno>
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#endif
 #include <istream>
 #include <system_error>
 
@@ -97,8 +99,12 @@ namespace Bsa
             }
 
             if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+                fail("Failed to read compressed BSA folder record: " + std::generic_category().message(errno));
+#else
                 fail(std::format(
                     "Failed to read compressed BSA folder record: {}", std::generic_category().message(errno)));
+#endif
 
             folders.emplace_back(std::move(folder), std::vector<FileRecord>());
         }
@@ -139,8 +145,12 @@ namespace Bsa
                 input.read(reinterpret_cast<char*>(&file.mOffset), 4);
 
                 if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+                    fail("Failed to read compressed BSA folder file record: " + std::generic_category().message(errno));
+#else
                     fail(std::format("Failed to read compressed BSA folder file record: {}",
                         std::generic_category().message(errno)));
+#endif
 
                 filelist.push_back(std::move(file));
             }
@@ -150,7 +160,11 @@ namespace Bsa
             input.ignore(mHeader.mFolderNamesLength);
 
         if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+            fail("Failed to read compressed BSA file records: " + std::generic_category().message(errno));
+#else
             fail(std::format("Failed to read compressed BSA file records: {}", std::generic_category().message(errno)));
+#endif
 
         if ((mHeader.mFlags & ArchiveFlag_FileNames) != 0)
         {
@@ -180,7 +194,11 @@ namespace Bsa
             input.ignore(mHeader.mFileNamesLength);
 
         if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+            fail("Failed to read compressed BSA filenames: " + std::generic_category().message(errno));
+#else
             fail(std::format("Failed to read compressed BSA filenames: {}", std::generic_category().message(errno)));
+#endif
 
         for (auto& [folder, filelist] : folders)
         {
@@ -214,7 +232,11 @@ namespace Bsa
         {
             if (((static_cast<unsigned>(c) >> 7U) & 1U) != 0U)
             {
+#if defined(__vita__) || defined(__3DS__)
+                fail("File record " + std::string(str) + " contains unicode characters, refusing to load.");
+#else
                 fail(std::format("File record {} contains unicode characters, refusing to load.", str));
+#endif
             }
         }
 

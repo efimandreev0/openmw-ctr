@@ -147,8 +147,18 @@ namespace Files
         }
         mScreenshotPath = mUserDataPath / "screenshots";
 
+#if defined(__vita__) || defined(__3DS__)
+        // Vita directories already created by Vita::initialize() via sceIoMkdir;
+        // std::filesystem::create_directories may not handle Vita drive paths.
+        try {
+#endif
         std::filesystem::create_directories(getUserConfigPath());
         std::filesystem::create_directories(mScreenshotPath);
+#if defined(__vita__) || defined(__3DS__)
+        } catch (const std::filesystem::filesystem_error&) {
+            // Directories should already exist from Vita::initialize()
+        }
+#endif
 
         // probably not necessary but validate the creation of the screenshots directory and fallback to the original
         // behavior if it fails
@@ -294,7 +304,20 @@ namespace Files
 
         if (str.empty() || str[0] != u8'?')
         {
+#if defined(__vita__) || defined(__3DS__)
+            // Vita drive paths (ux0:, app0:, uma0:, etc.) are absolute but
+            // std::filesystem::is_absolute() doesn't recognise them (no leading '/').
+            bool isAbsolute = path.is_absolute();
+            if (!isAbsolute)
+            {
+                auto colon = str.find(u8':');
+                if (colon != std::u8string::npos && colon > 0 && colon <= 5)
+                    isAbsolute = true;
+            }
+            if (!isAbsolute)
+#else
             if (!path.is_absolute())
+#endif
                 path = basePath / path;
             return;
         }
@@ -312,8 +335,14 @@ namespace Files
                 if (!tempPath.empty() && pos < view.length() - 1)
                 {
                     // There is something after the token, so we should
-                    // append it to the path
-                    tempPath /= view.substr(pos + 1, view.length() - pos);
+                    // append it to the path.  Strip the leading separator —
+                    // std::filesystem /= treats a leading '/' as absolute and
+                    // would replace the entire base path.
+                    auto suffix = view.substr(pos + 1);
+                    if (!suffix.empty() && (suffix[0] == u8'/' || suffix[0] == u8'\\'))
+                        suffix = suffix.substr(1);
+                    if (!suffix.empty())
+                        tempPath /= suffix;
                 }
 
                 path = std::move(tempPath);

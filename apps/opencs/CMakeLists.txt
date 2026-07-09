@@ -80,7 +80,7 @@ opencs_units (view/world
     )
 
 opencs_units (view/widget
-    scenetoolbar scenetool scenetoolmode pushbutton scenetooltoggle scenetoolrun modebutton scenetoolvertexpaintbrush
+    scenetoolbar scenetool scenetoolmode pushbutton scenetooltoggle scenetoolrun modebutton
     scenetooltoggle2 scenetooltexturebrush scenetoolshapebrush completerpopup coloreditor colorpickerpopup droplineedit
     )
 
@@ -88,11 +88,12 @@ opencs_units (view/render
     scenewidget worldspacewidget pagedworldspacewidget unpagedworldspacewidget
     previewwidget editmode instancemode instanceselectionmode instancemovemode
     orbitcameramode pathgridmode selectionmode pathgridselectionmode cameracontroller
-    cellwater terraintexturemode terrainvertexpaintmode actor terrainselection terrainshapemode brushdraw commands objectmarker
+    cellwater terraintexturemode actor terrainselection terrainshapemode brushdraw commands objectmarker
     )
 
 opencs_units (view/render
-    object cell terrainstorage cellarrow cellmarker cellborder pathgrid
+    lighting lightingday lightingnight lightingbright object cell terrainstorage
+    cellarrow cellmarker cellborder pathgrid
     )
 
 opencs_hdrs (view/render

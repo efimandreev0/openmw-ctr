@@ -157,7 +157,7 @@ namespace ESM
             return;
         }
 
-        esm.writeHNOCString("MODL", mModel.getOriginal());
+        esm.writeHNOCString("MODL", mModel);
         esm.writeHNOCString("FNAM", mName);
         esm.writeHNCRefId("RNAM", mRace);
         esm.writeHNCRefId("CNAM", mClass);

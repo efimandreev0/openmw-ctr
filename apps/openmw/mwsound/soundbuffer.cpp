@@ -68,7 +68,7 @@ namespace MWSound
 
     SoundBuffer* SoundBufferPool::lookup(VFS::Path::NormalizedView fileName) const
     {
-        const auto it = mBufferFileNameMap.find(fileName);
+        const auto it = mBufferFileNameMap.find(VFS::Path::Normalized(fileName));
         if (it != mBufferFileNameMap.end())
         {
             SoundBuffer* sfx = it->second;
@@ -132,7 +132,7 @@ namespace MWSound
     SoundBuffer* SoundBufferPool::load(VFS::Path::NormalizedView fileName)
     {
         SoundBuffer* sfx;
-        const auto it = mBufferFileNameMap.find(fileName);
+        const auto it = mBufferFileNameMap.find(VFS::Path::Normalized(fileName));
         if (it != mBufferFileNameMap.end())
             sfx = it->second;
         else

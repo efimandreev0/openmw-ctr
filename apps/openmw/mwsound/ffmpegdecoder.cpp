@@ -248,8 +248,15 @@ namespace MWSound
 
         AVFormatContextPtr formatCtxPtr(std::exchange(formatCtx, nullptr));
 
+#if !defined(__vita__) && !defined(__3DS__)
+        // Skip avformat_find_stream_info() on Vita entirely.
+        // It takes 23+ seconds for MP3 files scanning frames to determine codec params.
+        // The MP3 demuxer's read_header (called by avformat_open_input) already extracts
+        // codec_id, sample_rate, channels from the first frame header — sufficient for
+        // Morrowind's simple mono voice files.
         if (avformat_find_stream_info(formatCtxPtr.get(), nullptr) < 0)
             throw std::runtime_error("Failed to find stream info");
+#endif
 
         AVStream** stream = nullptr;
         for (size_t j = 0; j < formatCtxPtr->nb_streams; j++)
@@ -287,6 +294,28 @@ namespace MWSound
         AVFramePtr frame(av_frame_alloc());
         if (frame == nullptr)
             throw std::runtime_error("Failed to allocate frame");
+
+#if defined(__vita__) || defined(__3DS__)
+        // For codecs with AV_CODEC_CAP_CHANNEL_CONF (like MP3), sample_rate and
+        // channels are not populated until the first frame is decoded. Since we
+        // skipped avformat_find_stream_info (23+ sec for MP3), decode one probe
+        // frame here to discover these parameters (~1ms).
+        if (codec->capabilities & AV_CODEC_CAP_CHANNEL_CONF)
+        {
+            AVPacket probePkt;
+            memset(&probePkt, 0, sizeof(probePkt));
+            if (av_read_frame(formatCtxPtr.get(), &probePkt) >= 0)
+            {
+                avcodec_send_packet(codecCtxPtr.get(), &probePkt);
+                avcodec_receive_frame(codecCtxPtr.get(), frame.get());
+                av_packet_unref(&probePkt);
+            }
+            // Seek back to beginning for normal playback.
+            // Discovered params (sample_rate, channels) persist through flush.
+            av_seek_frame(formatCtxPtr.get(), -1, 0, AVSEEK_FLAG_BACKWARD);
+            avcodec_flush_buffers(codecCtxPtr.get());
+        }
+#endif
 
         if (codecCtxPtr->sample_fmt == AV_SAMPLE_FMT_U8P)
             mOutputSampleFormat = AV_SAMPLE_FMT_U8;

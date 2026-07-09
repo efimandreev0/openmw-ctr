@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <map>
-#include <span>
 #include <string>
 
 #include <osg/Vec4f>
@@ -247,8 +246,7 @@ namespace MWWorld
 
         operator ESM::RegionWeatherState() const;
 
-        void setChances(std::span<const uint8_t> chances);
-        std::span<const uint8_t> getChances() const;
+        void setChances(const std::vector<uint8_t>& chances);
 
         void setWeather(int weatherID);
 
@@ -310,8 +308,7 @@ namespace MWWorld
          */
         void changeWeather(const ESM::RefId& regionID, const unsigned int weatherID);
         void changeWeather(const ESM::RefId& regionID, const ESM::RefId& weatherID);
-        void modRegion(const ESM::RefId& regionID, std::span<const uint8_t> chances);
-        std::span<const uint8_t> getRegionChances(const ESM::RefId& regionID) const;
+        void modRegion(const ESM::RefId& regionID, const std::vector<uint8_t>& chances);
         void playerTeleported(const ESM::RefId& playerRegion, bool isExterior);
 
         /**

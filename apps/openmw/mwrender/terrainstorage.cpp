@@ -107,12 +107,10 @@ namespace MWRender
         return mLandManager->getLand(cellLocation);
     }
 
-    const VFS::Path::Normalized* TerrainStorage::getLandTexture(std::uint16_t index, int plugin)
+    const std::string* TerrainStorage::getLandTexture(std::uint16_t index, int plugin)
     {
         const MWWorld::ESMStore& esmStore = *MWBase::Environment::get().getESMStore();
-        if (const ESM::Path* const path = esmStore.get<ESM::LandTexture>().search(index, plugin))
-            return &path->getNormalized();
-        return nullptr;
+        return esmStore.get<ESM::LandTexture>().search(index, plugin);
     }
 
     const ESM4::LandTexture* TerrainStorage::getEsm4LandTexture(ESM::RefId ltexId) const

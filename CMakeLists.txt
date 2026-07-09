@@ -6,6 +6,28 @@ if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
 endif()
 
+# Convenience: `cmake -DPLATFORM=3ds` selects the devkitARM cross toolchain
+# and the console defaults by itself, so an IDE profile (CLion + WSL) needs a
+# single flag instead of a toolchain file plus a dozen -D options. Must run
+# before project() — the toolchain is locked in there.
+if(PLATFORM STREQUAL "3ds" OR PLATFORM STREQUAL "ctr")
+    if(NOT CMAKE_TOOLCHAIN_FILE)
+        set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_LIST_DIR}/cmake/CtrToolchain.cmake" CACHE FILEPATH "" FORCE)
+    endif()
+    # Only the game itself makes sense on the console; Qt tools need a host Qt.
+    foreach(_tool LAUNCHER WIZARD MWINIIMPORTER OPENCS ESSIMPORTER BSATOOL ESMTOOL
+                  NIFTEST NAVMESHTOOL BULLETOBJECTTOOL)
+        set(BUILD_${_tool} OFF CACHE BOOL "")
+    endforeach()
+    # The 3DS flag set is tuned for Release (-Os). Debug (-O0) roughly triples
+    # .text on a console where every code byte is stolen from the malloc
+    # arena, so map an IDE-default Debug profile to Release.
+    if(NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(STATUS "3DS: forcing CMAKE_BUILD_TYPE=Release (was '${CMAKE_BUILD_TYPE}')")
+        set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+    endif()
+endif()
+
 project(OpenMW)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -76,14 +98,64 @@ if (ANDROID)
     set(CMAKE_FIND_ROOT_PATH ${OPENMW_DEPENDENCIES_DIR} "${CMAKE_FIND_ROOT_PATH}")
 endif()
 
+if (VITA)
+    add_compile_options(-mthumb -ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden)
+    add_link_options(-Wl,--gc-sections -Wl,--undefined=sceUserMainThreadStackSize)
+    # Our components/vita/GL/gl.h shadows VitaSDK's incomplete TinyGL gl.h
+    include_directories(BEFORE "${CMAKE_SOURCE_DIR}/components/vita")
+    # VitaSDK newlib needs _DEFAULT_SOURCE for POSIX functions (realpath, etc.)
+    # and sys/syslimits.h for PATH_MAX (GCC's limits.h shadows VitaSDK's)
+    add_compile_definitions(_DEFAULT_SOURCE)
+    # PTE_CLEANUP_CXX: avoids C/C++ linkage mismatch in pthread cleanup functions.
+    add_compile_definitions(PTE_CLEANUP_CXX)
+    # Source-built LuaJIT has FFI compiled out — tell sol3 not to open it
+    add_compile_definitions(LUAJIT_DISABLE_FFI)
+    # Vita has no dynamic linker — PIC generates unsupported R_ARM_BASE_PREL relocations
+    set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+endif()
+
+if (CTR)
+    # ARMv6K has Thumb-1 only — Thumb mode would cost performance, stay ARM.
+    add_compile_options(-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden)
+    add_link_options(-Wl,--gc-sections)
+    # Route every std::thread/pthread through our placement wrapper
+    # (apps/openmw/ctr/CtrThreads.cpp): libctru's stock glue pins all worker
+    # threads to core 0 at the lowest priority; the wrapper lets the engine
+    # hint physics/preload onto New3DS core 2 and audio onto core 1.
+    add_link_options(-Wl,--wrap=__syscall_thread_create)
+    # Our components/ctr/GL/gl.h shadows portlibs' GL/gl.h with the NovaGL
+    # wrapper plus the missing desktop-GL declarations OSG needs.
+    include_directories(BEFORE "${CMAKE_SOURCE_DIR}/components/ctr")
+    # devkitARM newlib needs _DEFAULT_SOURCE for POSIX functions (realpath, etc.)
+    add_compile_definitions(_DEFAULT_SOURCE)
+    # Plain Lua 5.1 (portlibs) instead of LuaJIT — no FFI either way.
+    add_compile_definitions(LUAJIT_DISABLE_FFI)
+    # 3DS has no dynamic linker
+    set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+
+    # Console dependency defaults (declared later in this file, so plain
+    # CACHE sets here pre-seed them; explicit -D still wins): there is no
+    # "system" to take libraries from — everything comes from FetchContent/
+    # extern — and LuaJIT has no ARMv6K interpreter, use plain Lua 5.1 from
+    # portlibs.
+    foreach(_dep BENCHMARK BULLET GOOGLETEST ICU MYGUI OSG RECASTNAVIGATION SQLITE3 YAML_CPP)
+        set(OPENMW_USE_SYSTEM_${_dep} OFF CACHE BOOL "")
+    endforeach()
+    set(USE_LUAJIT OFF CACHE BOOL "")
+    # CheckLuaCustomAllocator uses TRY_RUN, which cannot execute ARM code
+    # when cross-compiling. Plain Lua 5.1 does support lua_newstate custom
+    # allocators — preset the run result (0 = success) so configure passes.
+    set(RUN_RESULT_VAR 0 CACHE STRING "Preset for cross-compile: Lua custom allocator supported")
+endif()
+
 # Version
 message(STATUS "Configuring OpenMW...")
 
 set(OPENMW_VERSION_MAJOR 0)
-set(OPENMW_VERSION_MINOR 52)
+set(OPENMW_VERSION_MINOR 51)
 set(OPENMW_VERSION_RELEASE 0)
-set(OPENMW_LUA_API_REVISION 136)
-set(OPENMW_POSTPROCESSING_API_REVISION 5)
+set(OPENMW_LUA_API_REVISION 111)
+set(OPENMW_POSTPROCESSING_API_REVISION 4)
 
 set(OPENMW_VERSION_COMMITHASH "")
 set(OPENMW_VERSION_TAGHASH "")
@@ -166,6 +238,9 @@ option(OPENMW_USE_SYSTEM_GOOGLETEST "Use system Google Test library." OFF)
 
 option(OPENMW_UNITY_BUILD "Use fewer compilation units to speed up compile time" FALSE)
 option(OPENMW_LTO_BUILD "Build OpenMW with Link-Time Optimization (Needs ~2GB of RAM)" OFF)
+
+# OS X deployment
+option(OPENMW_OSX_DEPLOYMENT OFF)
 
 if (CMAKE_GENERATOR MATCHES "Visual Studio")
     if (OPENMW_MSBUILD_COMPILER_OVERRIDE)
@@ -291,6 +366,9 @@ set(USED_OSG_COMPONENTS
     osgSim
     osgViewer
     )
+if(VITA OR CTR)
+    list(REMOVE_ITEM USED_OSG_COMPONENTS osgSim osgFX osgShadow osgParticle)
+endif()
 set(USED_OSG_PLUGINS
     osgdb_bmp
     osgdb_dae
@@ -301,6 +379,21 @@ set(USED_OSG_PLUGINS
     osgdb_png
     osgdb_serializers_osg
     osgdb_tga)
+if(VITA OR CTR)
+    list(REMOVE_ITEM USED_OSG_PLUGINS osgdb_dae osgdb_serializers_osg)
+endif()
+
+if(NOT VITA AND NOT CTR)
+    if(NOT COLLADA_DOM_VERSION_MAJOR)
+        set(COLLADA_DOM_VERSION_MAJOR 2)
+    endif()
+
+    if(NOT COLLADA_DOM_VERSION_MINOR)
+        set(COLLADA_DOM_VERSION_MINOR 5)
+    endif()
+
+    find_package(collada_dom 2.5)
+endif()
 
 option(OPENMW_USE_SYSTEM_ICU "Use system ICU library instead of internal. If disabled, requires autotools" ON)
 if(OPENMW_USE_SYSTEM_ICU)
@@ -335,34 +428,41 @@ find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE SWRESAMP
 if(FFmpeg_FOUND)
     SET(FFVER_OK TRUE)
 
-    if(FFmpeg_AVFORMAT_VERSION VERSION_LESS "57.56.100")
-        message(STATUS "libavformat is too old! (${FFmpeg_AVFORMAT_VERSION}, wanted 57.56.100)")
-        set(FFVER_OK FALSE)
-    endif()
-    if(FFmpeg_AVCODEC_VERSION VERSION_LESS "57.64.100")
-        message(STATUS "libavcodec is too old! (${FFmpeg_AVCODEC_VERSION}, wanted 57.64.100)")
-        set(FFVER_OK FALSE)
-    endif()
-    if(FFmpeg_AVUTIL_VERSION VERSION_LESS "55.34.100")
-        message(STATUS "libavutil is too old! (${FFmpeg_AVUTIL_VERSION}, wanted 55.34.100)")
-        set(FFVER_OK FALSE)
-    endif()
-    if(FFmpeg_SWSCALE_VERSION VERSION_LESS "4.2.100")
-        message(STATUS "libswscale is too old! (${FFmpeg_SWSCALE_VERSION}, wanted 4.2.100)")
-        set(FFVER_OK FALSE)
-    endif()
-    if(FFmpeg_SWRESAMPLE_VERSION VERSION_LESS "2.3.100")
-        message(STATUS "libswresample is too old! (${FFmpeg_SWRESAMPLE_VERSION}, wanted 2.3.100)")
-        set(FFVER_OK FALSE)
+    # Can not detect FFmpeg version on Windows or Android for now
+    if (NOT WIN32 AND NOT ANDROID)
+        if(FFmpeg_AVFORMAT_VERSION VERSION_LESS "57.56.100")
+            message(STATUS "libavformat is too old! (${FFmpeg_AVFORMAT_VERSION}, wanted 57.56.100)")
+            set(FFVER_OK FALSE)
+        endif()
+        if(FFmpeg_AVCODEC_VERSION VERSION_LESS "57.64.100")
+            message(STATUS "libavcodec is too old! (${FFmpeg_AVCODEC_VERSION}, wanted 57.64.100)")
+            set(FFVER_OK FALSE)
+        endif()
+        if(FFmpeg_AVUTIL_VERSION VERSION_LESS "55.34.100")
+            message(STATUS "libavutil is too old! (${FFmpeg_AVUTIL_VERSION}, wanted 55.34.100)")
+            set(FFVER_OK FALSE)
+        endif()
+        if(FFmpeg_SWSCALE_VERSION VERSION_LESS "4.2.100")
+            message(STATUS "libswscale is too old! (${FFmpeg_SWSCALE_VERSION}, wanted 4.2.100)")
+            set(FFVER_OK FALSE)
+        endif()
+        if(FFmpeg_SWRESAMPLE_VERSION VERSION_LESS "2.3.100")
+            message(STATUS "libswresample is too old! (${FFmpeg_SWRESAMPLE_VERSION}, wanted 2.3.100)")
+            set(FFVER_OK FALSE)
+        endif()
     endif()
 
-    if(NOT FFVER_OK)
+    if(NOT FFVER_OK AND NOT APPLE)  # unable to detect on version on MacOS < 11.0
         message(FATAL_ERROR "FFmpeg version is too old, 3.2 is required" )
     endif()
 endif()
 
 if(NOT FFmpeg_FOUND)
     message(FATAL_ERROR "FFmpeg was not found" )
+endif()
+
+if(WIN32)
+    message("Can not detect FFmpeg version, at least the 3.2 is required" )
 endif()
 
 # Required for building the FFmpeg headers
@@ -459,18 +559,6 @@ endif()
 include_directories(BEFORE SYSTEM ${OPENSCENEGRAPH_INCLUDE_DIRS})
 
 if(OSG_STATIC)
-    if(NOT COLLADA_DOM_VERSION_MAJOR)
-        set(COLLADA_DOM_VERSION_MAJOR 2)
-    endif()
-
-    if(NOT COLLADA_DOM_VERSION_MINOR)
-        set(COLLADA_DOM_VERSION_MINOR 5)
-    endif()
-
-    find_package(collada_dom 2.5)
-
-    link_directories(${COLLADA_DOM_LIBRARY_DIRS})
-
     add_compile_definitions(OSG_LIBRARY_STATIC)
 endif()
 
@@ -480,6 +568,26 @@ if(HAVE_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
 set(BOOST_COMPONENTS iostreams program_options)
+
+if(VITA)
+    set(Boost_USE_STATIC_RUNTIME ON)
+    # OSG's OpenThreads gets linked as -lOpenThreads; add library path
+    link_directories("${CMAKE_BINARY_DIR}/_deps/osg-build/lib")
+    # vitaGL build directory — set via -DVITAGL_DIR= or VITAGL_DIR env var
+    if(NOT VITAGL_DIR)
+        set(VITAGL_DIR "$ENV{VITAGL_DIR}")
+    endif()
+    if(NOT VITAGL_DIR)
+        message(FATAL_ERROR "VITAGL_DIR must be set (cmake -DVITAGL_DIR=/path/to/vitaGL or env var)")
+    endif()
+    link_directories("${VITAGL_DIR}")
+endif()
+
+if(CTR)
+    set(Boost_USE_STATIC_RUNTIME ON)
+    # OSG's OpenThreads gets linked as -lOpenThreads; add library path
+    link_directories("${CMAKE_BINARY_DIR}/_deps/osg-build/lib")
+endif()
 
 find_package(Boost 1.70.0 CONFIG REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
 
@@ -520,6 +628,8 @@ include_directories(
 )
 include_directories(".")
 
+link_directories(${COLLADA_DOM_LIBRARY_DIRS})
+
 if(MYGUI_STATIC)
     add_compile_definitions(MYGUI_STATIC)
 endif (MYGUI_STATIC)
@@ -544,7 +654,9 @@ if (APPLE)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${APP_BUNDLE_DIR}/Contents/MacOS")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${APP_BUNDLE_DIR}/Contents/MacOS")
 
-    SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+    if (OPENMW_OSX_DEPLOYMENT)
+        SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+    endif()
 else (APPLE)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OpenMW_BINARY_DIR}")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OpenMW_BINARY_DIR}")
@@ -632,14 +744,6 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT
 
     foreach(d ${WARNINGS_DISABLE})
         add_compile_options("/wd${d}")
-    endforeach(d)
-
-    set(WARNINGS_EXTRA
-        4855 # implicit capture of 'this' via '[=]' is deprecated in 'version'
-        )
-
-    foreach(d ${WARNINGS_EXTRA})
-        add_compile_options("/w1${d}")
     endforeach(d)
 
     if(OPENMW_MSVC_WERROR)
@@ -763,45 +867,11 @@ if (WIN32)
     #set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
 endif()
 
-
-# Core CPACK Setup
-set(CPACK_PACKAGE_VERSION ${OPENMW_VERSION})
-set(CPACK_PACKAGE_VERSION_MAJOR ${OPENMW_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${OPENMW_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${OPENMW_VERSION_RELEASE})
-set(CPACK_PACKAGE_NAME "OpenMW")
-set(CPACK_PACKAGE_VENDOR "OpenMW.org")
-set(CUSTOM_CPACK_OS_NAME "")
-set(CUSTOM_CPACK_ARCHITECTURE "")
-
-if(APPLE)
-    set(CUSTOM_CPACK_OS_NAME "macOS")
-elseif(WIN32)
-    set(CUSTOM_CPACK_OS_NAME "Windows")
-elseif(UNIX)
-    set(CUSTOM_CPACK_OS_NAME "Linux")
-else()
-    set(CUSTOM_CPACK_OS_NAME "${CMAKE_SYSTEM_NAME}")
-endif()
-
-if(WIN32 AND CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64")
-    set(CUSTOM_CPACK_ARCHITECTURE "x64")
-elseif(APPLE AND CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
-    set(CUSTOM_CPACK_ARCHITECTURE "x86_64")
-else()
-    set(CUSTOM_CPACK_ARCHITECTURE "${CMAKE_SYSTEM_PROCESSOR}")
-endif()
-
-set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CUSTOM_CPACK_OS_NAME}-${CUSTOM_CPACK_ARCHITECTURE}")
-
 # Apple bundling
-if (APPLE)
-    if(CMAKE_VERSION VERSION_LESS 3.19)
+if (OPENMW_OSX_DEPLOYMENT AND APPLE)
+    if (CMAKE_VERSION VERSION_LESS 3.19)
         message(FATAL_ERROR "macOS packaging requires CMake 3.19 or higher to sign macOS app bundles.")
-    endif()
-    if(CMAKE_OSX_ARCHITECTURES AND NOT (CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64" OR CMAKE_OSX_ARCHITECTURES STREQUAL "arm64"))
-        message(FATAL_ERROR "Only x86_64 OR arm64 is accepted for CMAKE_OSX_ARCHITECTURES")
-    endif()
+    endif ()
 
     get_property(QT_COCOA_PLUGIN_PATH TARGET Qt${QT_VERSION_MAJOR}::QCocoaIntegrationPlugin PROPERTY LOCATION_RELEASE)
     get_filename_component(QT_COCOA_PLUGIN_DIR "${QT_COCOA_PLUGIN_PATH}" DIRECTORY)
@@ -842,6 +912,10 @@ if (APPLE)
     install(DIRECTORY "${APP_BUNDLE_DIR}" USE_SOURCE_PERMISSIONS DESTINATION "." COMPONENT Runtime)
 
     set(CPACK_GENERATOR "DragNDrop")
+    set(CPACK_PACKAGE_VERSION ${OPENMW_VERSION})
+    set(CPACK_PACKAGE_VERSION_MAJOR ${OPENMW_VERSION_MAJOR})
+    set(CPACK_PACKAGE_VERSION_MINOR ${OPENMW_VERSION_MINOR})
+    set(CPACK_PACKAGE_VERSION_PATCH ${OPENMW_VERSION_RELEASE})
 
     set(INSTALLED_OPENMW_APP "\${CMAKE_INSTALL_PREFIX}/${APP_BUNDLE_NAME}")
     set(INSTALLED_OPENCS_APP "\${CMAKE_INSTALL_PREFIX}/${OPENCS_BUNDLE_NAME}")
@@ -982,6 +1056,12 @@ elseif(NOT APPLE)
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/resources" DESTINATION ".")
 
         SET(CPACK_GENERATOR "NSIS")
+        SET(CPACK_PACKAGE_NAME "OpenMW")
+        SET(CPACK_PACKAGE_VENDOR "OpenMW.org")
+        SET(CPACK_PACKAGE_VERSION ${OPENMW_VERSION})
+        SET(CPACK_PACKAGE_VERSION_MAJOR ${OPENMW_VERSION_MAJOR})
+        SET(CPACK_PACKAGE_VERSION_MINOR ${OPENMW_VERSION_MINOR})
+        SET(CPACK_PACKAGE_VERSION_PATCH ${OPENMW_VERSION_RELEASE})
         SET(CPACK_PACKAGE_EXECUTABLES "openmw;OpenMW")
         IF(BUILD_LAUNCHER)
             SET(CPACK_PACKAGE_EXECUTABLES "${CPACK_PACKAGE_EXECUTABLES};openmw-launcher;OpenMW Launcher")
@@ -1026,6 +1106,7 @@ elseif(NOT APPLE)
         include(CPack)
     else(WIN32)
         # Linux installation
+      if(NOT VITA AND NOT CTR)
 
         # Install binaries
         IF(BUILD_OPENMW)
@@ -1082,8 +1163,9 @@ elseif(NOT APPLE)
 
         # Install resources
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/resources" DESTINATION "${DATADIR}" COMPONENT "Resources")
+      endif(NOT VITA AND NOT CTR)
     endif(WIN32)
-endif(APPLE)
+endif(OPENMW_OSX_DEPLOYMENT AND APPLE)
 
 # what is necessary to build documentation
 if ( BUILD_DOCS )
@@ -1120,41 +1202,20 @@ if (USE_QT)
     file(GLOB COMPONENTS_TS_FILES ${CMAKE_SOURCE_DIR}/files/lang/components_*.ts)
     get_target_property(QT_LUPDATE_EXECUTABLE Qt::lupdate IMPORTED_LOCATION)
     add_custom_target(translations
-        COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none ${CMAKE_SOURCE_DIR}/components/contentselector ${CMAKE_SOURCE_DIR}/components/process -ts ${COMPONENTS_TS_FILES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/components
-        VERBATIM
-        COMMAND_EXPAND_LISTS
-        BYPRODUCTS ${COMPONENTS_TS_FILES}
+    COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none ${CMAKE_SOURCE_DIR}/components/contentselector ${CMAKE_SOURCE_DIR}/components/process -ts ${COMPONENTS_TS_FILES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/components
+    VERBATIM
+    COMMAND_EXPAND_LISTS
 
-        COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none ${CMAKE_SOURCE_DIR}/apps/wizard -ts ${WIZARD_TS_FILES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/wizard
-        VERBATIM
-        COMMAND_EXPAND_LISTS
-        BYPRODUCTS ${WIZARD_TS_FILES}
+    COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none ${CMAKE_SOURCE_DIR}/apps/wizard -ts ${WIZARD_TS_FILES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/wizard
+    VERBATIM
+    COMMAND_EXPAND_LISTS
 
-        COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none ${CMAKE_SOURCE_DIR}/apps/launcher -ts ${LAUNCHER_TS_FILES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/launcher
-        VERBATIM
-        COMMAND_EXPAND_LISTS
-        BYPRODUCTS ${LAUNCHER_TS_FILES}
-    )
-
-    add_custom_target(purge-obsolete-translations
-        COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none -no-obsolete ${CMAKE_SOURCE_DIR}/components/contentselector ${CMAKE_SOURCE_DIR}/components/process -ts ${COMPONENTS_TS_FILES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/components
-        VERBATIM
-        COMMAND_EXPAND_LISTS
-
-        COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none -no-obsolete ${CMAKE_SOURCE_DIR}/apps/wizard -ts ${WIZARD_TS_FILES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/wizard
-        VERBATIM
-        COMMAND_EXPAND_LISTS
-
-        COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none -no-obsolete ${CMAKE_SOURCE_DIR}/apps/launcher -ts ${LAUNCHER_TS_FILES}
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/launcher
-        VERBATIM
-        COMMAND_EXPAND_LISTS
-    )
+    COMMAND ${QT_LUPDATE_EXECUTABLE} -locations none ${CMAKE_SOURCE_DIR}/apps/launcher -ts ${LAUNCHER_TS_FILES}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/apps/launcher
+    VERBATIM
+    COMMAND_EXPAND_LISTS)
 
     if (BUILD_LAUNCHER OR BUILD_WIZARD)
         if (APPLE)

@@ -3,7 +3,9 @@
 
 #include <array>
 #include <cassert>
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#endif
 #include <istream>
 #include <stdexcept>
 #include <string>
@@ -24,8 +26,14 @@ namespace Bgsm
         static_assert(std::is_arithmetic_v<T>, "Buffer element type is not arithmetic");
         pIStream->read(reinterpret_cast<char*>(dest), numInstances * sizeof(T));
         if (pIStream->fail())
+#if defined(__vita__) || defined(__3DS__)
+            throw std::runtime_error(std::string("Failed to read typed (") + typeid(T).name()
+                + ") buffer of " + std::to_string(numInstances) + " instances: "
+                + std::generic_category().message(errno));
+#else
             throw std::runtime_error(std::format("Failed to read typed ({}) buffer of {} instances: {}",
                 typeid(T).name(), numInstances, std::generic_category().message(errno)));
+#endif
         if constexpr (Misc::IS_BIG_ENDIAN)
             for (std::size_t i = 0; i < numInstances; i++)
                 Misc::swapEndiannessInplace(dest[i]);

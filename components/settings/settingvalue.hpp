@@ -41,6 +41,7 @@ namespace Settings
         MyGuiColour,
         GyroscopeAxis,
         NavMeshRenderMode,
+        LightingMethod,
         HrtfMode,
         WindowMode,
         VSyncMode,
@@ -153,6 +154,12 @@ namespace Settings
     }
 
     template <>
+    inline constexpr SettingValueType getSettingValueType<SceneUtil::LightingMethod>()
+    {
+        return SettingValueType::LightingMethod;
+    }
+
+    template <>
     inline constexpr SettingValueType getSettingValueType<HrtfMode>()
     {
         return SettingValueType::HrtfMode;
@@ -214,6 +221,8 @@ namespace Settings
                 return "gyroscope axis";
             case SettingValueType::NavMeshRenderMode:
                 return "navmesh render mode";
+            case SettingValueType::LightingMethod:
+                return "lighting method";
             case SettingValueType::HrtfMode:
                 return "hrtf mode";
             case SettingValueType::WindowMode:

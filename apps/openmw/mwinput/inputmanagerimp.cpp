@@ -10,6 +10,9 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
+#ifdef __3DS__
+#include "../mwworld/globals.hpp"
+#endif
 
 #include "../mwworld/esmstore.hpp"
 
@@ -45,6 +48,11 @@ namespace MWInput
         mInputWrapper->setMouseEventCallback(mMouseManager.get());
         mInputWrapper->setControllerEventCallback(mControllerManager.get());
         mInputWrapper->setSensorEventCallback(mSensorManager.get());
+
+#if defined(__vita__) || defined(__3DS__)
+        mInputWrapper->setTouchCursorEnabledPredicate(
+            []() { return MWBase::Environment::get().getWindowManager()->isGuiMode(); });
+#endif
     }
 
     void InputManager::clear()
@@ -126,6 +134,28 @@ namespace MWInput
 
     bool InputManager::getControlSwitch(std::string_view sw)
     {
+#ifdef __3DS__
+        // Chargen movement unblock (source-level so every reader — Lua
+        // playercontrols, action manager, camera — sees the same value and no
+        // frame-phase race can undo it). The Morrowind intro calls
+        // DisablePlayerControls at wake-up and relies on the first NPC
+        // proximity-greeting's result-script to re-enable them once you
+        // approach; but the player is frozen and cannot approach, so that
+        // bootstrap never fires and the intro is stuck at chargenstate 10.
+        // Vanilla lets you walk during chargen, so while a new game is in
+        // progress (chargenstate != -1) and no menu/dialogue is open, report
+        // player controls as enabled. Restricted to "playercontrols" so combat
+        // /magic/menu locks during chargen still hold, and skipped in GUI mode
+        // where the intro legitimately locks control (e.g. census dialogue).
+        if (sw == "playercontrols")
+        {
+            MWBase::World* world = MWBase::Environment::get().getWorld();
+            MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+            if (world != nullptr && wm != nullptr && !wm->isGuiMode()
+                && world->getGlobalInt(MWWorld::Globals::sCharGenState) != -1)
+                return true;
+        }
+#endif
         return mControlSwitch->get(sw);
     }
 
@@ -191,24 +221,6 @@ namespace MWInput
 
     void InputManager::warpMouseToWidget(MyGUI::Widget* widget)
     {
-        // This is currently used to simulate mouse movement when the gamepad UI is used.
-        // Sometimes this is called in reaction to layout changes.
-        // It's a bad idea to do this if the user triggered one with the actual mouse.
-
-        // Don't warp if a gamepad wasn't in use when this was triggered.
-        if (!joystickLastUsed())
-            return;
-
-        // Don't warp if the mouse button is actively being held.
-        // TODO: this should be a method somewhere so that it can be reused in, e.g., Lua bindings
-        if (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON_LMASK)
-            return;
-
-        // Don't warp if an emulated mouse press is occurring.
-        if (isGamepadGuiCursorEnabled() && isControllerButtonPressed(SDL_CONTROLLER_BUTTON_A))
-            return;
-
-        MWBase::Environment::get().getWindowManager()->setCursorVisible(false);
         mMouseManager->warpMouseToWidget(widget);
         mMouseManager->injectMouseMove(1, 0, 0);
         MWBase::Environment::get().getWindowManager()->setCursorActive(true);

@@ -147,21 +147,6 @@ namespace MWMechanics
                     characterController.getSupportedMovementDirections(), targetReachedTolerance);
                 if (isTargetReached)
                     storage.mReadyToAttack = true;
-                bool isRangedCombat = false;
-                storage.mCurrentAction->getCombatRange(isRangedCombat);
-                if (!isRangedCombat && storage.mShouldApproach && storage.mReadyToAttack)
-                {
-                    if (getDistanceToBounds(actor, target) > 64.f)
-                    {
-                        storage.stopCombatMove();
-                        storage.mMovement.mPosition[1] = 1.f;
-                    }
-                    else
-                    {
-                        storage.mShouldApproach = false;
-                        storage.mMovement.mPosition[1] = 0.f;
-                    }
-                }
             }
 
             storage.updateCombatMove(duration);
@@ -302,10 +287,6 @@ namespace MWMechanics
                     canShout = false;
             }
             storage.startAttackIfReady(actor, characterController, weapon, isRangedCombat, canShout);
-        }
-        else
-        {
-            storage.mShouldApproach = true;
         }
 
         // If actor uses custom destination it has to try to rebuild path because environment can change

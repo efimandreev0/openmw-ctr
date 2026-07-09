@@ -3,7 +3,10 @@
 
 #include <components/vfs/pathutil.hpp>
 
+#include <osg/LightModel>
 #include <osg/NodeCallback>
+
+#include <string_view>
 
 namespace osg
 {
@@ -36,6 +39,8 @@ namespace MWRender
     };
 
     bool shouldAddMSAAIntermediateTarget();
+
+    const osg::ref_ptr<osg::LightModel>& getVFXLightModelInstance();
 }
 
 #endif

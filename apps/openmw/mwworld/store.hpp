@@ -2,6 +2,7 @@
 #define OPENMW_MWWORLD_STORE_H
 
 #include <map>
+#include <memory>
 #include <set>
 #include <span>
 #include <string>
@@ -9,7 +10,6 @@
 #include <vector>
 
 #include <components/esm/attr.hpp>
-#include <components/esm/path.hpp>
 #include <components/esm/refid.hpp>
 #include <components/esm/util.hpp>
 #include <components/esm3/loadcell.hpp>
@@ -26,6 +26,8 @@
 #include <components/esm4/loadrefr.hpp>
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/algorithm.hpp>
+
+#include "../mwdialogue/keywordsearch.hpp"
 
 namespace ESM
 {
@@ -254,16 +256,15 @@ namespace MWWorld
     class Store<ESM::LandTexture> : public DynamicStore
     {
         using PluginIndex = std::pair<int, std::uint32_t>; // This is essentially a FormId
-
+        std::unordered_map<ESM::RefId, std::string> mStatic;
         std::map<PluginIndex, ESM::RefId> mMappings;
-        std::unordered_map<ESM::RefId, ESM::Path> mStatic;
 
     public:
         Store();
 
         // Must be threadsafe! Called from terrain background loading threads.
         // Not a big deal here, since ESM::LandTexture can never be modified or inserted/erased
-        const ESM::Path* search(std::uint32_t index, int plugin) const;
+        const std::string* search(std::uint32_t index, int plugin) const;
 
         size_t getSize() const override;
         bool eraseStatic(const ESM::RefId& id) override;
@@ -279,6 +280,8 @@ namespace MWWorld
 
         const ESM::GameSetting* find(const std::string_view id) const;
         const ESM::GameSetting* search(const std::string_view id) const;
+
+        void setUp() override;
     };
 
     template <>
@@ -467,6 +470,8 @@ namespace MWWorld
 
     public:
         Store() = default;
+
+        void setUp(const MWWorld::Store<ESM::GameSetting>& settings);
     };
 
     template <>
@@ -506,7 +511,8 @@ namespace MWWorld
         /// @warning ESM::Dialogue Store currently implements a sorted order for unknown reasons.
         std::vector<ESM::Dialogue*> mShared;
 
-        mutable bool mKeywordSearchModFlag{ true };
+        mutable bool mKeywordSearchModFlag;
+        mutable MWDialogue::KeywordSearch<int /*unused*/> mKeywordSearch;
 
     public:
         Store();
@@ -529,7 +535,18 @@ namespace MWWorld
 
         void listIdentifier(std::vector<ESM::RefId>& list) const override;
 
-        bool getKeywordSearchModFlag() const;
+        const MWDialogue::KeywordSearch<int>& getDialogIdKeywordSearch() const;
+
+#ifdef __3DS__
+        // Mutable pass over the loaded topics for the INFO bake (records are
+        // frozen everywhere else after setUp).
+        template <class F>
+        void ctrForEachDialogue(F&& f)
+        {
+            for (auto& [id, dial] : mStatic)
+                f(dial);
+        }
+#endif
     };
 
     template <typename T>

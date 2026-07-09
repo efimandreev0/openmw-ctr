@@ -115,6 +115,7 @@ void CSVRender::CellBorder::buildShape(const ESM::Land& esmLand)
     primitives->setElement(VertexCount, 0);
 
     mBorderGeometry->addPrimitiveSet(primitives);
+    mBorderGeometry->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
 
     mBaseNode->addChild(mBorderGeometry);
 }

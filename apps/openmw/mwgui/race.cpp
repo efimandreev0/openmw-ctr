@@ -163,8 +163,7 @@ namespace MWGui
         mPreviewTexture
             = std::make_unique<MyGUIPlatform::OSGTexture>(mPreview->getTexture(), mPreview->getTextureStateSet());
         mPreviewImage->setRenderItemTexture(mPreviewTexture.get());
-        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted
-        mPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+        mPreviewImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
 
         const ESM::NPC& proto = mPreview->getPrototype();
         setRaceId(proto.mRace);

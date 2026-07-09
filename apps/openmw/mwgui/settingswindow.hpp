@@ -50,11 +50,8 @@ namespace MWGui
         MyGUI::ComboBox* mWaterRainRippleDetail;
 
         MyGUI::ComboBox* mMaxLights;
-        MyGUI::Button* mClusteredLightingButton;
-        MyGUI::Widget* mClassicFalloffWidget;
+        MyGUI::ComboBox* mLightingMethodButton;
         MyGUI::Button* mLightsResetButton;
-        MyGUI::Widget* mMinimumBrightnessText;
-        MyGUI::Widget* mMinimumBrightnessScroll;
 
         MyGUI::ComboBox* mPrimaryLanguage;
         MyGUI::ComboBox* mSecondaryLanguage;
@@ -92,6 +89,7 @@ namespace MWGui
         void onWaterReflectionDetailChanged(MyGUI::ComboBox* sender, size_t pos);
         void onWaterRainRippleDetailChanged(MyGUI::ComboBox* sender, size_t pos);
 
+        void onLightingMethodButtonChanged(MyGUI::ComboBox* sender, size_t pos);
         void onLightsResetButtonClicked(MyGUI::Widget* sender);
         void onMaxLightsChanged(MyGUI::ComboBox* sender, size_t pos);
 
@@ -102,6 +100,30 @@ namespace MWGui
 
         void onWindowModeChanged(MyGUI::ComboBox* sender, size_t pos);
         void onVSyncModeChanged(MyGUI::ComboBox* sender, size_t pos);
+
+#if defined(__vita__) || defined(__3DS__)
+        // Hide view-distance slider row while dynamic fog drives it.
+        void updateVitaViewDistVisibility();
+        // Hide controls that can't work or cause issues on Vita.
+        void hideIrrelevantVitaWidgets();
+        // Target-fps dropdown (3 discrete options: 15/18/20)
+        MyGUI::ComboBox* mVitaDynFogTargetFpsList = nullptr;
+        void onVitaDynFogTargetFpsChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Fog aggression dropdown (Normal/Aggressive/Very Aggressive)
+        MyGUI::ComboBox* mVitaDynFogAggressionList = nullptr;
+        void onVitaDynFogAggressionChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Preload cell cache size (1/2/3)
+        MyGUI::ComboBox* mVitaCellCacheList = nullptr;
+        void onVitaCellCacheChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Render resolution preset (5 discrete options). Sets both
+        // Video.resolution x and Video.resolution y. Restart required.
+        MyGUI::ComboBox* mVitaResolutionList = nullptr;
+        void onVitaResolutionChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Texture downsample preset (performance/balanced/high/off).
+        // Backed by General.vita texture detail. Restart required.
+        MyGUI::ComboBox* mVitaTextureDetailList = nullptr;
+        void onVitaTextureDetailChanged(MyGUI::ComboBox* sender, size_t pos);
+#endif
 
         void onRebindAction(MyGUI::Widget* sender);
         void onInputTabMouseWheel(MyGUI::Widget* sender, int rel);

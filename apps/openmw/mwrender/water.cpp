@@ -31,6 +31,10 @@
 
 #include <components/shader/shadermanager.hpp>
 
+#if defined(__vita__) || defined(__3DS__)
+#include <components/vita/VitaShader.h>
+#endif
+
 #include <components/esm3/loadcell.hpp>
 
 #include <components/fallback/fallback.hpp>
@@ -442,9 +446,15 @@ namespace MWRender
         , mCullCallback(nullptr)
         , mShaderWaterStateSetUpdater(nullptr)
     {
+#if !defined(__vita__) && !defined(__3DS__)
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
+#endif
 
+#if defined(__vita__) || defined(__3DS__)
+        mWaterGeom = SceneUtil::createWaterGeometry(Constants::CellSizeInUnits * 4, 8, 24);
+#else
         mWaterGeom = SceneUtil::createWaterGeometry(Constants::CellSizeInUnits * 150, 40, 900);
+#endif
         mWaterGeom->setDrawCallback(new DepthClampCallback);
         mWaterGeom->setNodeMask(Mask_Water);
         mWaterGeom->setDataVariance(osg::Object::STATIC);
@@ -455,12 +465,18 @@ namespace MWRender
         mWaterNode->addChild(mWaterGeom);
         mWaterNode->addCullCallback(new FudgeCallback);
 
+#if !defined(__vita__) && !defined(__3DS__)
         // simple water fallback for the local map
         osg::ref_ptr<osg::Geometry> geom2(osg::clone(mWaterGeom.get(), osg::CopyOp::DEEP_COPY_NODES));
         createSimpleWaterStateSet(geom2, Fallback::Map::getFloat("Water_Map_Alpha"));
         geom2->setNodeMask(Mask_SimpleWater);
         geom2->setName("Simple Water Geometry");
         mWaterNode->addChild(geom2);
+#else
+        // Water shaders are disabled on Vita — the geom would render invisibly
+        // but still cost a cull pass + draw call. Hide it from rendering.
+        mWaterNode->setNodeMask(0);
+#endif
 
         mSceneRoot->addChild(mWaterNode);
 
@@ -516,7 +532,8 @@ namespace MWRender
         {
             mParent->removeChild(mRipples);
             mRipples = nullptr;
-            mSimulation->setRipples(nullptr);
+            if (mSimulation)
+                mSimulation->setRipples(nullptr);
         }
 
         mWaterNode->setStateSet(nullptr);
@@ -544,9 +561,12 @@ namespace MWRender
                 mParent->addChild(mRefraction);
             }
 
+#if !defined(__vita__) && !defined(__3DS__)
             mRipples = new Ripples(mResourceSystem);
-            mSimulation->setRipples(mRipples);
+            if (mSimulation)
+                mSimulation->setRipples(mRipples);
             mParent->addChild(mRipples);
+#endif
 
             showWorld(mShowWorld);
 
@@ -600,10 +620,23 @@ namespace MWRender
 
         stateset->setTextureAttributeAndModes(0, textures[0], osg::StateAttribute::ON);
 
+#if defined(__vita__) || defined(__3DS__)
+        // Water is created programmatically (not via SceneManager::getInstance),
+        // so ShaderVisitor never runs on it. Apply VitaLit manually.
+        {
+            const osg::Material* mat = dynamic_cast<const osg::Material*>(
+                node->getOrCreateStateSet()->getAttribute(osg::StateAttribute::MATERIAL));
+            Vita::applyVitaShader(*node, 0 /*OFF*/, 0.0f, mat);
+        }
+#else
         // use a shader to render the simple water, ensuring that fog is applied per pixel as required.
         // this could be removed if a more detailed water mesh, using some sort of paging solution, is implemented.
         Resource::SceneManager* sceneManager = mResourceSystem->getSceneManager();
+        bool oldValue = sceneManager->getForceShaders();
+        sceneManager->setForceShaders(true);
         sceneManager->recreateShaders(node);
+        sceneManager->setForceShaders(oldValue);
+#endif
     }
 
     class ShaderWaterStateSetUpdater : public SceneUtil::StateSetUpdater
@@ -730,7 +763,8 @@ namespace MWRender
         {
             mParent->removeChild(mRipples);
             mRipples = nullptr;
-            mSimulation->setRipples(nullptr);
+            if (mSimulation)
+                mSimulation->setRipples(nullptr);
         }
     }
 
@@ -775,7 +809,8 @@ namespace MWRender
     {
         mTop = height;
 
-        mSimulation->setWaterHeight(height);
+        if (mSimulation)
+            mSimulation->setWaterHeight(height);
 
         osg::Vec3f pos = mWaterNode->getPosition();
         pos.z() = height;
@@ -797,7 +832,9 @@ namespace MWRender
     {
         if (!paused)
         {
+#if !defined(__vita__) && !defined(__3DS__)
             mSimulation->update(dt);
+#endif
         }
 
         if (mRipples)
@@ -838,32 +875,38 @@ namespace MWRender
 
     void Water::addEmitter(const MWWorld::Ptr& ptr, float scale, float force)
     {
-        mSimulation->addEmitter(ptr, scale, force);
+        if (mSimulation)
+            mSimulation->addEmitter(ptr, scale, force);
     }
 
     void Water::removeEmitter(const MWWorld::Ptr& ptr)
     {
-        mSimulation->removeEmitter(ptr);
+        if (mSimulation)
+            mSimulation->removeEmitter(ptr);
     }
 
     void Water::updateEmitterPtr(const MWWorld::Ptr& old, const MWWorld::Ptr& ptr)
     {
-        mSimulation->updateEmitterPtr(old, ptr);
+        if (mSimulation)
+            mSimulation->updateEmitterPtr(old, ptr);
     }
 
     void Water::emitRipple(const osg::Vec3f& pos)
     {
-        mSimulation->emitRipple(pos);
+        if (mSimulation)
+            mSimulation->emitRipple(pos);
     }
 
     void Water::removeCell(const MWWorld::CellStore* store)
     {
-        mSimulation->removeCell(store);
+        if (mSimulation)
+            mSimulation->removeCell(store);
     }
 
     void Water::clearRipples()
     {
-        mSimulation->clear();
+        if (mSimulation)
+            mSimulation->clear();
     }
 
     void Water::showWorld(bool show)

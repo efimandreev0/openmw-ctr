@@ -311,6 +311,12 @@ namespace NifOsg
         osg::ref_ptr<osg::TexMat> texMat(new osg::TexMat);
         for (unsigned int unit : mTextureUnits)
             stateset->setTextureAttributeAndModes(unit, texMat, osg::StateAttribute::ON);
+#if defined(__vita__) || defined(__3DS__)
+        // Mirror to a uniform — our custom VitaLit shader path doesn't read
+        // OSG's TexMat StateAttribute (that's FFP-only). Required for animated
+        // UV scrolling on waterfalls and similar.
+        stateset->addUniform(new osg::Uniform("u_texMat0", osg::Matrixf::identity()));
+#endif
     }
 
     void UVController::apply(osg::StateSet* stateset, osg::NodeVisitor* nv)
@@ -320,10 +326,11 @@ namespace NifOsg
             float value = getInputValue(nv);
 
             // First scale the UV relative to its center, then apply the offset.
-            // U offset is flipped regardless of the graphics library
+            // U offset is flipped regardless of the graphics library,
+            // while V offset is flipped to account for OpenGL Y axis convention.
             osg::Vec3f uvOrigin(0.5f, 0.5f, 0.f);
             osg::Vec3f uvScale(mUScale.interpKey(value), mVScale.interpKey(value), 1.f);
-            osg::Vec3f uvTrans(-mUTrans.interpKey(value), mVTrans.interpKey(value), 0.f);
+            osg::Vec3f uvTrans(-mUTrans.interpKey(value), -mVTrans.interpKey(value), 0.f);
 
             osg::Matrixf mat = osg::Matrixf::translate(uvOrigin);
             mat.preMultScale(uvScale);
@@ -337,6 +344,12 @@ namespace NifOsg
                     stateset->getTextureAttribute(*mTextureUnits.begin(), osg::StateAttribute::TEXMAT));
                 texMat->setMatrix(mat);
             }
+#if defined(__vita__) || defined(__3DS__)
+            // Push the same matrix into VitaLit's u_texMat0 uniform so our
+            // custom shader picks up the animated UV transform.
+            if (osg::Uniform* u = stateset->getUniform("u_texMat0"))
+                u->set(osg::Matrixf(mat));
+#endif
         }
     }
 

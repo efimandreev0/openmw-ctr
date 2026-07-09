@@ -11,6 +11,9 @@
 #include <components/lua/asyncpackage.hpp>
 #include <components/lua/scriptscontainer.hpp>
 #include <components/misc/algorithm.hpp>
+#if defined(__vita__) || defined(__3DS__)
+#include <components/misc/strings/heterogeneous.hpp>
+#endif
 
 namespace LuaUtil::InputAction
 {
@@ -85,7 +88,11 @@ namespace LuaUtil::InputAction
             std::vector<Id> mDependencies;
         };
         std::vector<std::string> mKeys;
+#if defined(__vita__) || defined(__3DS__)
+        std::unordered_map<std::string, Id, Misc::StringUtils::StringHash, std::equal_to<std::string>> mIds;
+#else
         std::unordered_map<std::string, Id, Misc::StringUtils::StringHash, std::equal_to<>> mIds;
+#endif
         std::vector<Info> mInfo;
         std::vector<std::vector<LuaUtil::Callback>> mHandlers;
         std::vector<std::vector<Binding>> mBindings;
@@ -114,7 +121,11 @@ namespace LuaUtil::InputTrigger
         }
         std::optional<std::string> nextKey(std::string_view key) const
         {
+#if defined(__vita__) || defined(__3DS__)
+            auto it = Misc::heterogeneousFind(mIds, key);
+#else
             auto it = mIds.find(key);
+#endif
             if (it == mIds.end() || ++it == mIds.end())
                 return std::nullopt;
             return it->first;
@@ -128,7 +139,11 @@ namespace LuaUtil::InputTrigger
     private:
         using Id = size_t;
         Id safeIdByKey(std::string_view key);
+#if defined(__vita__) || defined(__3DS__)
+        std::unordered_map<std::string, Id, Misc::StringUtils::StringHash, std::equal_to<std::string>> mIds;
+#else
         std::unordered_map<std::string, Id, Misc::StringUtils::StringHash, std::equal_to<>> mIds;
+#endif
         std::vector<Info> mInfo;
         std::vector<std::vector<LuaUtil::Callback>> mHandlers;
     };

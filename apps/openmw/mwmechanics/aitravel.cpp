@@ -78,7 +78,7 @@ namespace MWMechanics
 
         if (!stats.getMovementFlag(CreatureStats::Flag_ForceJump)
             && !stats.getMovementFlag(CreatureStats::Flag_ForceSneak)
-            && mechMgr->getGreetingState(actor) == GreetingState::InProgress)
+            && (mechMgr->isTurningToPlayer(actor) || mechMgr->getGreetingState(actor) == GreetingState::InProgress))
             return false;
 
         const osg::Vec3f actorPos(actor.getRefData().getPosition().asVec3());

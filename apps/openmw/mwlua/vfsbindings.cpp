@@ -343,7 +343,7 @@ namespace MWLua
             return sol::as_function([iterator, current = iterator.begin()]() mutable -> sol::optional<std::string> {
                 if (current != iterator.end())
                 {
-                    const std::string& result = *current;
+                    std::string result(VFS::Path::NormalizedView(*current).value());
                     ++current;
                     return result;
                 }

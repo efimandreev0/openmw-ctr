@@ -14,7 +14,6 @@
 #include <components/settings/values.hpp>
 
 #include "../mwbase/environment.hpp"
-#include "../mwbase/inputmanager.hpp"
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
@@ -93,9 +92,6 @@ namespace MWGui
         getWidget(mWeaponSpellBox, "WeaponSpellName");
 
         getWidget(mCrosshair, "Crosshair");
-        getWidget(mMouseEmulationCursor, "MouseEmulationCursor");
-
-        mLocalMapZoom = 0.5f;
 
         LocalMapBase::init(mMinimap, mCompass);
 
@@ -358,8 +354,12 @@ namespace MWGui
             // use the icon of the first effect
             const ESM::MagicEffect* effect = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(
                 spell->mEffects.mList.front().mData.mEffectID);
-            const VFS::Path::Normalized iconPath = Misc::ResourceHelpers::correctBigIconPath(
-                effect->mIcon.getNormalized(), *MWBase::Environment::get().getResourceSystem()->getVFS());
+            std::string icon = effect->mIcon;
+            std::replace(icon.begin(), icon.end(), '/', '\\');
+            size_t slashPos = icon.rfind('\\');
+            icon.insert(slashPos + 1, "b_");
+            const VFS::Path::Normalized iconPath = Misc::ResourceHelpers::correctIconPath(
+                VFS::Path::toNormalized(icon), *MWBase::Environment::get().getResourceSystem()->getVFS());
             mSpellImage->setSpellIcon(iconPath);
         }
         else
@@ -470,17 +470,6 @@ namespace MWGui
         {
             mCrosshair->changeWidgetSkin("HUD_Crosshair");
         }
-    }
-
-    void HUD::setMouseEmulationCursorVisible(bool visible)
-    {
-        mMouseEmulationCursor->setVisible(visible);
-    }
-
-    void HUD::setMouseEmulationCursorPosition(int left, int top)
-    {
-        mMouseEmulationCursor->setPosition(
-            left - mMouseEmulationCursor->getWidth() / 2, top - mMouseEmulationCursor->getHeight() / 2);
     }
 
     void HUD::setHmsVisible(bool visible)

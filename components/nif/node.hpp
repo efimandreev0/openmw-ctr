@@ -119,8 +119,6 @@ namespace Nif
 
         void read(NIFStream* nif) override;
         void post(Reader& nif) override;
-
-        const NiNode* findRootCollisionNode(bool recursive) const;
     };
 
     struct NiGeometry : NiAVObject
@@ -291,16 +289,7 @@ namespace Nif
 
     struct NiBillboardNode : NiNode
     {
-        enum class BillboardMode : uint16_t
-        {
-            AlwaysFaceCamera = 0,
-            RotateAboutUp = 1,
-            RigidFaceCamera = 2,
-            AlwaysFaceCenter = 3,
-            RigidFaceCenter = 4,
-            BSRotateAboutUp = 5,
-        };
-        BillboardMode mMode;
+        int mMode;
 
         void read(NIFStream* nif) override;
     };

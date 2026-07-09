@@ -259,6 +259,8 @@ void CSVRender::BrushDraw::update(osg::Vec3d point, int brushSize, CSVWidget::Br
             break;
     }
 
+    mGeometry->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+
     mBrushDrawNode->addChild(mGeometry);
 }
 

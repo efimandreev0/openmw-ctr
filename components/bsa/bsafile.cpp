@@ -28,7 +28,9 @@
 #include <cerrno>
 #include <cstring>
 #include <filesystem>
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#endif
 #include <fstream>
 #include <istream>
 #include <system_error>
@@ -36,6 +38,7 @@
 #include <components/esm/fourcc.hpp>
 #include <components/files/constrainedfilestream.hpp>
 #include <components/files/utils.hpp>
+
 
 using namespace Bsa;
 
@@ -124,7 +127,11 @@ void BSAFile::readHeader(std::istream& input)
         input.read(reinterpret_cast<char*>(head), 12);
 
         if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+            fail("Failed to read head: " + std::generic_category().message(errno));
+#else
             fail(std::format("Failed to read head: {}", std::generic_category().message(errno)));
+#endif
 
         if (head[0] != 0x100)
             fail("Unrecognized BSA header");
@@ -148,14 +155,22 @@ void BSAFile::readHeader(std::istream& input)
     input.read(reinterpret_cast<char*>(offsets.data()), 12 * filenum);
 
     if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+        fail("Failed to read offsets: " + std::generic_category().message(errno));
+#else
         fail(std::format("Failed to read offsets: {}", std::generic_category().message(errno)));
+#endif
 
     // Read the string table
     mStringBuf.resize(dirsize - 12 * filenum);
     input.read(mStringBuf.data(), mStringBuf.size());
 
     if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+        fail("Failed to read string table: " + std::generic_category().message(errno));
+#else
         fail(std::format("Failed to read string table: {}", std::generic_category().message(errno)));
+#endif
 
     // Check our position
     assert(input.tellg() == std::streampos(12 + dirsize));
@@ -164,7 +179,11 @@ void BSAFile::readHeader(std::istream& input)
     input.read(reinterpret_cast<char*>(hashes.data()), 8 * filenum);
 
     if (input.fail())
+#if defined(__vita__) || defined(__3DS__)
+        fail("Failed to read hashes: " + std::generic_category().message(errno));
+#else
         fail(std::format("Failed to read hashes: {}", std::generic_category().message(errno)));
+#endif
 
     // Calculate the offset of the data buffer. All file offsets are
     // relative to this. 12 header bytes + directory + hash table
@@ -180,11 +199,21 @@ void BSAFile::readHeader(std::istream& input)
         const std::streamsize offset = static_cast<std::streamsize>(offsets[i * 2 + 1]) + fileDataOffset;
 
         if (fileSize + offset > fsize)
+#if defined(__vita__) || defined(__3DS__)
+            fail("Archive contains offsets outside itself: " + std::to_string(fileSize) + " + "
+                + std::to_string(offset) + " > " + std::to_string(fsize));
+#else
             fail(std::format("Archive contains offsets outside itself: {} + {} > {}", fileSize, offset, fsize));
+#endif
 
         if (offset > std::numeric_limits<uint32_t>::max())
+#if defined(__vita__) || defined(__3DS__)
+            fail("Absolute file " + std::to_string(i) + " offset is too large: " + std::to_string(offset)
+                + " > " + std::to_string(std::numeric_limits<uint32_t>::max()));
+#else
             fail(std::format(
                 "Absolute file {} offset is too large: {} > {}", i, offset, std::numeric_limits<uint32_t>::max()));
+#endif
 
         const uint32_t nameOffset = offsets[2 * filenum + i];
 
@@ -292,8 +321,21 @@ void Bsa::BSAFile::close()
 
 Files::IStreamPtr Bsa::BSAFile::getFile(const FileStruct* file)
 {
+    // NOTE: An earlier optimization here pooled file handles and eager-read
+    // the entire asset into a malloc'd buffer (one syscall per asset, no
+    // fopen latency). It crashed under heavy load — Icarian Flight stress
+    // test across many cells triggered an OOM at heap-used=234 MB / free=76 MB,
+    // which is heap fragmentation, not exhaustion. The eager-read pattern
+    // mallocs a different-sized buffer for every asset (4 KB to 256 KB
+    // range); newlib's allocator doesn't compact, so a few thousand
+    // varied-size alloc/free cycles fragment the heap until no large
+    // contiguous block can be found. The stream path below uses a single
+    // 32 KB internal buffer per ConstrainedFileStreamBuf and reads
+    // incrementally — no varied-size per-asset allocations, no
+    // fragmentation. Trades fopen latency back for stability.
     return Files::openConstrainedFileStream(mFilepath, file->mOffset, file->mFileSize);
 }
+
 
 void Bsa::BSAFile::addFile(const std::string& filename, std::istream& file)
 {

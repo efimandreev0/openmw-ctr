@@ -75,6 +75,17 @@ namespace ESM
         // selected
         std::string mResultScript;
 
+        // 3DS: when the SD string pool is active (CtrStrPool), the two
+        // strings above stay empty and these {offset,len} pairs locate the
+        // text in the pool. len == 0 means "inline" (pool inactive or empty).
+        uint32_t mResponseOfs = 0, mResponseLen = 0;
+        uint32_t mResultOfs = 0, mResultLen = 0;
+
+        std::string getResponse() const; // materializes from the pool when lazy
+        std::string getResultScript() const;
+        bool hasResponse() const { return mResponseLen != 0 || !mResponse.empty(); }
+        bool hasResultScript() const { return mResultLen != 0 || !mResultScript.empty(); }
+
         // ONLY include this item the NPC is not part of any faction.
         bool mFactionLess;
 

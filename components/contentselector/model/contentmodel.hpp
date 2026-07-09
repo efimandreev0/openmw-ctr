@@ -64,7 +64,7 @@ namespace ContentSelectorModel
         bool isNew(const QString& filepath) const;
         void setNew(const EsmFile* file, bool isChecked);
         void setNonUserContent(const QStringList& fileList);
-        void setContentList(const QStringList& fileList, bool orderOnly = false);
+        void setContentList(const QStringList& fileList);
         ContentFileList checkedItems() const;
         void uncheckAll();
 

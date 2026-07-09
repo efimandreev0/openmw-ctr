@@ -1,6 +1,7 @@
 #include "translation.hpp"
 
 #include <fstream>
+#include <sstream>
 
 #include <components/misc/pathhelpers.hpp>
 
@@ -17,7 +18,7 @@ namespace Translation
 
         loadData(mCellNamesTranslations, esmNameNoExtension, "cel", dataFileCollections);
         loadData(mPhraseForms, esmNameNoExtension, "top", dataFileCollections);
-        loadData(mKeywords, esmNameNoExtension, "mrk", dataFileCollections);
+        loadData(mTopicIDs, esmNameNoExtension, "mrk", dataFileCollections);
     }
 
     void Storage::loadData(ContainerType& container, std::string_view fileNameNoExtension, std::string_view extension,
@@ -30,12 +31,38 @@ namespace Translation
         const Files::MultiDirCollection& collection = dataFileCollections.getCollection(extension);
         if (collection.doesExist(fileName))
         {
+#if defined(__vita__) || defined(__3DS__)
+            // Read the whole file in one go and parse from memory. A plain
+            // std::ifstream over the console devoptab paths ("sdmc:/...")
+            // is both glacially slow (tiny filebuf refills, each an FS
+            // round-trip) and risky with the !eof/!fail loop below — a
+            // misbehaving streambuf spins it forever. One fread sidesteps
+            // all of it; these files are a few hundred KB at most.
+            const std::string pathStr = collection.getPath(fileName).string();
+            FILE* f = fopen(pathStr.c_str(), "rb");
+            if (!f)
+                throw std::runtime_error("failed to open translation file: " + fileName);
+            fseek(f, 0, SEEK_END);
+            const long size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            std::string data;
+            if (size > 0)
+            {
+                data.resize(static_cast<size_t>(size));
+                const size_t read = fread(data.data(), 1, data.size(), f);
+                data.resize(read);
+            }
+            fclose(f);
+            std::istringstream stream(data);
+            loadDataFromStream(container, stream);
+#else
             std::ifstream stream(collection.getPath(fileName));
 
             if (!stream.is_open())
                 throw std::runtime_error("failed to open translation file: " + fileName);
 
             loadDataFromStream(container, stream);
+#endif
         }
     }
 
@@ -75,6 +102,19 @@ namespace Translation
         return entry->second;
     }
 
+    std::string_view Storage::topicID(std::string_view phrase) const
+    {
+        std::string_view result = topicStandardForm(phrase);
+
+        // seeking for the topic ID
+        auto topicIDIterator = mTopicIDs.find(result);
+
+        if (topicIDIterator != mTopicIDs.end())
+            result = topicIDIterator->second;
+
+        return result;
+    }
+
     std::string_view Storage::topicStandardForm(std::string_view phrase) const
     {
         auto phraseFormsIterator = mPhraseForms.find(phrase);
@@ -85,23 +125,13 @@ namespace Translation
             return phrase;
     }
 
-    std::string_view Storage::topicKeyword(std::string_view phrase) const
-    {
-        auto entry = mKeywords.find(phrase);
-
-        if (entry == mKeywords.end())
-            return phrase;
-
-        return entry->second;
-    }
-
-    void Storage::addPhraseForm(std::string_view phrase, std::string_view topicId)
-    {
-        mPhraseForms.emplace(phrase, topicId);
-    }
-
     void Storage::setEncoder(ToUTF8::Utf8Encoder* encoder)
     {
         mEncoder = encoder;
+    }
+
+    bool Storage::hasTranslation() const
+    {
+        return !mCellNamesTranslations.empty() || !mTopicIDs.empty() || !mPhraseForms.empty();
     }
 }

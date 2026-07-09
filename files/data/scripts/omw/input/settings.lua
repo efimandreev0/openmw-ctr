@@ -33,7 +33,7 @@ I.Settings.registerGroup({
     permanentStorage = true,
     settings = {
         boolSetting('alwaysRun', false),
-        boolSetting('toggleSneak', false), -- TODO: consider removing this setting when we have the advanced binding UI
+        boolSetting('toggleSneak', true), -- TODO: consider removing this setting when we have the advanced binding UI
         boolSetting('smoothControllerMovement', true),
     },
 })

@@ -43,6 +43,7 @@ namespace MWInput
     private:
         BindingsManager* mBindingsManager;
         SDLUtil::InputWrapper* mInputWrapper;
+        SDL_Window* mSDLWindow;
 
         float mGuiCursorX;
         float mGuiCursorY;

@@ -6,6 +6,17 @@
 
 #include <components/debug/debuglog.hpp>
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaInit.h"
+#include "../mwrender/renderingmanager.hpp"
+#include "../mwrender/animation.hpp"
+#include "../mwmechanics/aipackage.hpp"
+#include <components/resource/resourcesystem.hpp>
+#define VITA_CRUMB(msg) Vita::breadcrumb(msg)
+#else
+#define VITA_CRUMB(msg)
+#endif
+
 #include <components/esm3/actoridconverter.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
@@ -62,6 +73,13 @@ void MWState::StateManager::cleanup(bool force)
         MWBase::Environment::get().getWorld()->clear();
         MWBase::Environment::get().getInputManager()->clear();
         MWBase::Environment::get().getMechanicsManager()->clear();
+
+#if defined(__vita__) || defined(__3DS__)
+        // Vita: free cached resources immediately (save loader needs the RAM).
+        MWBase::Environment::get().getWorld()->getRenderingManager()->flushUnrefQueueImmediate();
+        MWBase::Environment::get().getResourceSystem()->clearCache();
+        Vita::logMemoryStatus("Post-cleanup");
+#endif
 
         mCharacterManager.setCurrentCharacter(nullptr);
         mTimePlayed = 0;
@@ -163,6 +181,7 @@ MWState::StateManager::State MWState::StateManager::getState() const
 
 void MWState::StateManager::newGame(bool bypass)
 {
+    VITA_CRUMB("newGame() enter");
     cleanup();
 
     if (!bypass)
@@ -171,14 +190,18 @@ void MWState::StateManager::newGame(bool bypass)
     try
     {
         Log(Debug::Info) << "Starting a new game";
+        VITA_CRUMB("newGame() addStartup");
         MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
+        VITA_CRUMB("newGame() startNewGame");
         MWBase::Environment::get().getWorld()->startNewGame(bypass);
+        VITA_CRUMB("newGame() startNewGame done");
 
         mState = State_Running;
         MWBase::Environment::get().getLuaManager()->gameLoaded();
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0);
         MWBase::Environment::get().getWindowManager()->fadeScreenIn(1);
+        VITA_CRUMB("newGame() done");
     }
     catch (std::exception& e)
     {
@@ -211,6 +234,19 @@ void MWState::StateManager::resumeGame()
 void MWState::StateManager::saveGame(std::string_view description, const Slot* slot)
 {
     MWBase::Environment::get().getLuaManager()->applyDelayedActions();
+
+#if defined(__vita__) || defined(__3DS__)
+    // libpng's internal mallocs fail under heap pressure during save thumbnail
+    // and fog-of-war PNG writes; OSG's writer doesn't NULL-check png_ptr.
+    // Force-flush caches AND the unref queue so libpng has room to allocate.
+    if (auto* rm = MWBase::Environment::get().getWorld()->getRenderingManager())
+        rm->flushUnrefQueueImmediate();
+    MWBase::Environment::get().getResourceSystem()->clearCache();
+    MWMechanics::AiPackage::clearPathgridCache();
+    MWRender::clearAnimationModelCache();
+    if (auto* rm = MWBase::Environment::get().getWorld()->getRenderingManager())
+        rm->flushUnrefQueueImmediate();
+#endif
 
     MWState::Character* character = getCurrentCharacter();
 
@@ -454,6 +490,13 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
     {
         cleanup();
 
+#if defined(__vita__) || defined(__3DS__)
+        // Flush caches before save loading (cleanup may skip on first load).
+        MWBase::Environment::get().getWorld()->getRenderingManager()->flushUnrefQueueImmediate();
+        MWBase::Environment::get().getResourceSystem()->clearCache();
+        Vita::logMemoryStatus("Pre-save-load");
+#endif
+
         Log(Debug::Info) << "Reading save file " << filepath.filename();
 
         ESM::ESMReader reader;
@@ -546,10 +589,6 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
                 case ESM::REC_CREA:
                 case ESM::REC_CONT:
                 case ESM::REC_RAND:
-                case ESM::REC_STAT:
-                case ESM::REC_DOOR:
-                case ESM::REC_PROB:
-                case ESM::REC_INGR:
                     MWBase::Environment::get().getWorld()->readRecord(reader, n.toInt());
                     break;
 
@@ -676,7 +715,7 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
         {
             // Insert additional else if statements above to cover future releases
             static_assert(ESM::MinSupportedSaveGameFormatVersion <= ESM::OpenMW0_49MinSaveGameFormatVersion);
-            release = "OpenMW 0.52.0";
+            release = "OpenMW 0.51.0";
         }
         auto l10n = MWBase::Environment::get().getL10nManager()->getContext("OMWEngine");
         std::string error = l10n->formatMessage("LoadingRequiresOldVersionError", { "version" }, { release });

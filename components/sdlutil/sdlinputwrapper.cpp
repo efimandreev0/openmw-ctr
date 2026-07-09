@@ -1,3 +1,12 @@
+#include <cstdio>
+
+#ifdef __3DS__
+extern "C" void vitaBreadcrumb(const char*);
+extern "C" {
+extern const char* volatile g_ctrBeacon;
+}
+void ctrPumpNativeInput(); // apps/openmw/ctr/CtrHidInput.cpp
+#endif
 #include "sdlinputwrapper.hpp"
 
 #include <components/debug/debuglog.hpp>
@@ -30,7 +39,6 @@ namespace SDLUtil
         , mMouseZ(0)
         , mMouseX(0)
         , mMouseY(0)
-        , mPendingWheelY(0.0)
         , mWindowHasFocus(true)
         , mMouseInWindow(true)
     {
@@ -56,6 +64,13 @@ namespace SDLUtil
     {
         mViewer->getEventQueue()->frame(0.f);
 
+#ifdef __3DS__
+        // Native HID bridge: the SDL n3ds joystick driver stays silent in
+        // this setup, so buttons/sticks/touch are polled directly and pushed
+        // into the SDL queue here (see apps/openmw/ctr/CtrHidInput.cpp).
+        g_ctrBeacon = "input-pump";
+        ::ctrPumpNativeInput();
+#endif
         SDL_PumpEvents();
 
         SDL_Event evt;
@@ -71,12 +86,32 @@ namespace SDLUtil
             SDL_FlushEvent(SDL_MOUSEBUTTONDOWN);
             SDL_FlushEvent(SDL_MOUSEMOTION);
             SDL_FlushEvent(SDL_MOUSEWHEEL);
+#if defined(__vita__) || defined(__3DS__)
+            SDL_FlushEvent(SDL_FINGERDOWN);
+            SDL_FlushEvent(SDL_FINGERUP);
+            SDL_FlushEvent(SDL_FINGERMOTION);
+#endif
 
             return;
         }
 
         while (SDL_PollEvent(&evt))
         {
+#ifdef __3DS__
+            // Input-path proof: log the first controller/joystick events so a
+            // frozen scene can be told apart from a dead input chain.
+            if (evt.type >= SDL_JOYAXISMOTION && evt.type <= SDL_CONTROLLERSENSORUPDATE)
+            {
+                static int s_inputCrumbs = 0;
+                if (s_inputCrumbs < 16)
+                {
+                    ++s_inputCrumbs;
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "[Input] SDL evt 0x%x", static_cast<unsigned>(evt.type));
+                    vitaBreadcrumb(buf);
+                }
+            }
+#endif
 #if SDL_VERSION_ATLEAST(2, 30, 50)
             // SDL2-compat may pass us SDL3 display and window events alongside the SDL2 events for funsies
             // Until we are ready to move to SDL3, we'll want to prevent the noise
@@ -213,10 +248,130 @@ namespace SDLUtil
                 case SDL_FINGERDOWN:
                 case SDL_FINGERUP:
                 case SDL_FINGERMOTION:
+#if defined(__vita__) || defined(__3DS__)
+                    // Back touchpad: left/right halves emulate L2/R2 triggers.
+                    // Margins on the outer edges and the centre seam keep the
+                    // hit zones away from where users naturally rest fingers.
+                    if (evt.tfinger.touchId == 2 && evt.type != SDL_FINGERMOTION && mConListener)
+                    {
+                        constexpr float kEdgeMargin = 0.10f; // left/right outer dead zones
+                        constexpr float kSeamMargin = 0.05f; // centre dead zone (each side)
+                        const float x = evt.tfinger.x;
+                        const bool isL2Zone = (x >= kEdgeMargin && x < 0.5f - kSeamMargin);
+                        const bool isR2Zone = (x > 0.5f + kSeamMargin && x <= 1.0f - kEdgeMargin);
+                        if (isL2Zone || isR2Zone)
+                        {
+                            const bool pressed = (evt.type == SDL_FINGERDOWN);
+                            bool& state = isL2Zone ? mBackTouchL2 : mBackTouchR2;
+                            if (pressed != state)
+                            {
+                                state = pressed;
+                                SDL_ControllerAxisEvent axEvt = {};
+                                axEvt.type = SDL_CONTROLLERAXISMOTION;
+                                axEvt.axis = isL2Zone ? SDL_CONTROLLER_AXIS_TRIGGERLEFT
+                                                      : SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+                                axEvt.value = pressed ? 32767 : 0;
+                                mConListener->axisMoved(1, axEvt);
+                            }
+                        }
+                        break;
+                    }
+                    if (evt.tfinger.touchId == 1)
+                    {
+                        const bool guiMode = mTouchCursorEnabled && mTouchCursorEnabled();
+
+                        // Zones only fire in gameplay so top-corner menu items stay clickable.
+                        if (!guiMode && evt.type != SDL_FINGERMOTION && mConListener)
+                        {
+                            const bool isLeftZone = (evt.tfinger.x < 0.25f && evt.tfinger.y < 0.2f);
+                            const bool isRightZone = (evt.tfinger.x > 0.75f && evt.tfinger.y < 0.2f);
+                            if (isLeftZone || isRightZone)
+                            {
+                                bool pressed = (evt.type == SDL_FINGERDOWN);
+                                bool& state = isLeftZone ? mTouchZoneLeft : mTouchZoneRight;
+                                if (pressed != state)
+                                {
+                                    state = pressed;
+                                    SDL_ControllerButtonEvent btnEvt = {};
+                                    btnEvt.type = pressed ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+                                    btnEvt.button = isLeftZone ? SDL_CONTROLLER_BUTTON_LEFTSTICK
+                                                               : SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+                                    btnEvt.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+                                    if (pressed)
+                                        mConListener->buttonPressed(1, btnEvt);
+                                    else
+                                        mConListener->buttonReleased(1, btnEvt);
+                                }
+                                break;
+                            }
+                        }
+
+                        // GUI mode: touch is absolute cursor position + click/drag.
+                        if (guiMode && mMouseListener)
+                        {
+                            int winW = 0, winH = 0;
+                            SDL_GetWindowSize(mSDLWindow, &winW, &winH);
+                            const Sint32 px = static_cast<Sint32>(evt.tfinger.x * winW);
+                            const Sint32 py = static_cast<Sint32>(evt.tfinger.y * winH);
+
+                            if (evt.type == SDL_FINGERDOWN && !mCursorFingerActive)
+                            {
+                                mCursorFingerActive = true;
+                                mCursorFingerId = evt.tfinger.fingerId;
+                                mMouseX = px;
+                                mMouseY = py;
+                                MouseMotionEvent mm = {};
+                                mm.type = SDL_MOUSEMOTION;
+                                mm.which = SDL_TOUCH_MOUSEID;
+                                mm.x = px;
+                                mm.y = py;
+                                mm.state = SDL_BUTTON_LMASK;
+                                mMouseListener->mouseMoved(mm);
+                                SDL_MouseButtonEvent mb = {};
+                                mb.type = SDL_MOUSEBUTTONDOWN;
+                                mb.which = SDL_TOUCH_MOUSEID;
+                                mb.button = SDL_BUTTON_LEFT;
+                                mb.state = SDL_PRESSED;
+                                mb.clicks = 1;
+                                mb.x = px;
+                                mb.y = py;
+                                mMouseListener->mousePressed(mb, SDL_BUTTON_LEFT);
+                            }
+                            else if (evt.type == SDL_FINGERMOTION && mCursorFingerActive
+                                && evt.tfinger.fingerId == mCursorFingerId)
+                            {
+                                MouseMotionEvent mm = {};
+                                mm.type = SDL_MOUSEMOTION;
+                                mm.which = SDL_TOUCH_MOUSEID;
+                                mm.x = px;
+                                mm.y = py;
+                                mm.xrel = px - mMouseX;
+                                mm.yrel = py - mMouseY;
+                                mm.state = SDL_BUTTON_LMASK;
+                                mMouseX = px;
+                                mMouseY = py;
+                                mMouseListener->mouseMoved(mm);
+                            }
+                            else if (evt.type == SDL_FINGERUP && mCursorFingerActive
+                                && evt.tfinger.fingerId == mCursorFingerId)
+                            {
+                                mCursorFingerActive = false;
+                                SDL_MouseButtonEvent mb = {};
+                                mb.type = SDL_MOUSEBUTTONUP;
+                                mb.which = SDL_TOUCH_MOUSEID;
+                                mb.button = SDL_BUTTON_LEFT;
+                                mb.state = SDL_RELEASED;
+                                mb.x = px;
+                                mb.y = py;
+                                mMouseListener->mouseReleased(mb, SDL_BUTTON_LEFT);
+                            }
+                        }
+                    }
+                    break;
+#endif
                 case SDL_DOLLARGESTURE:
                 case SDL_DOLLARRECORD:
                 case SDL_MULTIGESTURE:
-                    // No use for touch & gesture events
                     break;
 
                 case SDL_APP_WILLENTERBACKGROUND:
@@ -440,14 +595,7 @@ namespace SDLUtil
         }
         else if (evt.type == SDL_MOUSEWHEEL)
         {
-            double preciseY = evt.wheel.preciseY;
-
-            mPendingWheelY += preciseY * 120.0;
-            const int zrel = static_cast<int>(mPendingWheelY);
-            mPendingWheelY -= zrel;
-
-            mMouseZ += zrel;
-            packEvt.zrel = zrel;
+            mMouseZ += packEvt.zrel = (evt.wheel.y * 120);
             packEvt.z = mMouseZ;
             packEvt.type = SDL_MOUSEWHEEL;
         }

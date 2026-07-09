@@ -10,6 +10,9 @@
 
 #include <apps/opencs/model/prefs/category.hpp>
 #include <apps/opencs/model/prefs/setting.hpp>
+#include <apps/opencs/view/render/lightingbright.hpp>
+#include <apps/opencs/view/render/lightingday.hpp>
+#include <apps/opencs/view/render/lightingnight.hpp>
 
 #include <osgQt/CompositeOsgRenderer.hpp>
 #include <osgQt/osgQOpenGLWidget.hpp>
@@ -21,7 +24,7 @@
 #include <osg/Geometry>
 #include <osg/GraphicsContext>
 #include <osg/Group>
-#include <osg/Light>
+#include <osg/LightModel>
 #include <osg/Material>
 #include <osg/Matrix>
 #include <osg/PrimitiveSet>
@@ -43,13 +46,10 @@
 #include <osgViewer/ViewerEventHandlers>
 
 #include <components/debug/debuglog.hpp>
-#include <components/misc/constants.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/lightmanager.hpp>
-#include <components/sceneutil/stateupdater.hpp>
-#include <components/shader/removedalphafunc.hpp>
 
 #include "../widget/scenetoolmode.hpp"
 
@@ -57,66 +57,18 @@
 #include "../../model/prefs/state.hpp"
 
 #include "cameracontroller.hpp"
+#include "lighting.hpp"
 #include "mask.hpp"
-
-namespace
-{
-    class DayNightSwitchVisitor : public osg::NodeVisitor
-    {
-    public:
-        DayNightSwitchVisitor(int index)
-            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
-            , mIndex(index)
-        {
-        }
-
-        void apply(osg::Switch& switchNode) override
-        {
-            constexpr unsigned noIndex = static_cast<unsigned>(-1);
-
-            unsigned initialIndex = noIndex;
-            if (!switchNode.getUserValue("initialIndex", initialIndex))
-            {
-                for (size_t i = 0; i < switchNode.getValueList().size(); ++i)
-                {
-                    if (switchNode.getValueList()[i])
-                    {
-                        initialIndex = static_cast<unsigned>(i);
-                        break;
-                    }
-                }
-
-                if (initialIndex != noIndex)
-                    switchNode.setUserValue("initialIndex", initialIndex);
-            }
-
-            if (CSMPrefs::get()["Rendering"]["scene-day-night-switch-nodes"].isTrue())
-            {
-                if (switchNode.getName() == Constants::NightDayLabel)
-                    switchNode.setSingleChildOn(mIndex);
-            }
-            else if (initialIndex != noIndex)
-            {
-                switchNode.setSingleChildOn(initialIndex);
-            }
-
-            traverse(switchNode);
-        }
-
-    private:
-        int mIndex;
-    };
-}
 
 namespace CSVRender
 {
 
-    RenderWidget::RenderWidget(
-        std::shared_ptr<Resource::ResourceSystem> resourceSystem, QWidget* parent, Qt::WindowFlags f)
+    RenderWidget::RenderWidget(QWidget* parent, Qt::WindowFlags f)
         : QWidget(parent, f)
         , mRootNode(nullptr)
     {
         mView = new osgViewer::View;
+        updateCameraParameters(width() / static_cast<double>(height()));
 
         mWidget = new osgQOpenGLWidget(this);
 
@@ -145,40 +97,15 @@ namespace CSVRender
 
         mView->getCamera()->setGraphicsContext(window);
 
-        osg::ref_ptr<SceneUtil::LightManager> lightMgr
-            = new SceneUtil::LightManager(SceneUtil::LightSettings{}, resourceSystem.get());
+        osg::ref_ptr<SceneUtil::LightManager> lightMgr = new SceneUtil::LightManager;
+        lightMgr->setStartLight(1);
         lightMgr->setLightingMask(Mask_Lighting);
-
-        mSunLight = new osg::Light;
-        mSunLight->setDiffuse(osg::Vec4f(0, 0, 0, 1));
-        mSunLight->setAmbient(osg::Vec4f(0, 0, 0, 1));
-        mSunLight->setSpecular(osg::Vec4f(0, 0, 0, 0));
-        mSunLight->setConstantAttenuation(1.f);
-        lightMgr->setSunlight(mSunLight);
-
         mRootNode = std::move(lightMgr);
-
-        mStateUpdater = new SceneUtil::StateUpdater();
-        mRootNode->addUpdateCallback(mStateUpdater);
-
-        mSharedUniformStateUpdater = new SceneUtil::SharedUniformStateUpdater(1.0);
-        mRootNode->addUpdateCallback(mSharedUniformStateUpdater);
-
-        mPerViewUniformStateUpdater = new SceneUtil::PerViewUniformStateUpdater(resourceSystem->getSceneManager());
-        mRootNode->addCullCallback(mPerViewUniformStateUpdater);
-
-        mRootNode->getOrCreateStateSet()->setAttribute(Shader::RemovedAlphaFunc::getInstance(GL_ALWAYS));
-        mRootNode->getOrCreateStateSet()->setMode(GL_ALPHA_TEST, osg::StateAttribute::OFF);
-        mRootNode->getOrCreateStateSet()->setMode(
-            GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED | osg::StateAttribute::OVERRIDE);
 
         mView->getCamera()->setViewport(new osg::Viewport(0, 0, width(), height()));
 
         mView->getCamera()->getOrCreateStateSet()->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
         mView->getCamera()->getOrCreateStateSet()->setMode(GL_CULL_FACE, osg::StateAttribute::ON);
-        mView->getCamera()->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
-        mView->getCamera()->setName(Constants::SceneCamera);
-
         osg::ref_ptr<osg::Material> defaultMat(new osg::Material);
         defaultMat->setColorMode(osg::Material::OFF);
         defaultMat->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4f(1, 1, 1, 1));
@@ -193,8 +120,6 @@ namespace CSVRender
 
         mRenderer->addView(mView);
         mRenderer->setDone(false);
-
-        updateCameraParameters(width() / static_cast<double>(height()));
     }
 
     RenderWidget::~RenderWidget()
@@ -238,8 +163,9 @@ namespace CSVRender
 
     SceneWidget::SceneWidget(std::shared_ptr<Resource::ResourceSystem> resourceSystem, QWidget* parent,
         Qt::WindowFlags f, bool retrieveInput)
-        : RenderWidget(resourceSystem, parent, f)
-        , mResourceSystem(resourceSystem)
+        : RenderWidget(parent, f)
+        , mResourceSystem(std::move(resourceSystem))
+        , mLighting(nullptr)
         , mHasDefaultAmbient(false)
         , mIsExterior(true)
         , mCamPositionSet(false)
@@ -271,7 +197,7 @@ namespace CSVRender
         // we handle lighting manually
         mView->setLightingMode(osgViewer::View::NO_LIGHT);
 
-        setLighting(LightingMode::Day);
+        setLighting(&mLightingDay);
 
         mResourceSystem->getSceneManager()->setParticleSystemMask(Mask_ParticleSystem);
 
@@ -342,6 +268,7 @@ namespace CSVRender
 
         geometry->setColorArray(colours, osg::Array::BIND_PER_VERTEX);
 
+        geometry->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
         geometry->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 
         return geometry;
@@ -376,38 +303,29 @@ namespace CSVRender
         mGradientCamera->setChild(0, gradientRect.get());
     }
 
-    void SceneWidget::setLighting(LightingMode mode)
+    void SceneWidget::setLighting(Lighting* lighting)
     {
-        int index = 0;
-        switch (mode)
-        {
-            case LightingMode::Day:
-                mSunLight->setPosition(osg::Vec4f(0.f, 0.f, 1.f, 0.f));
-                mSunLight->setAmbient(osg::Vec4f(0.f, 0.f, 0.f, 1.f));
-                mSunLight->setDiffuse(osg::Vec4f(1.f, 1.f, 1.f, 1.f));
-                mStateUpdater->setAmbientColor(
-                    mHasDefaultAmbient ? mDefaultAmbient : osg::Vec4f(0.7f, 0.7f, 0.7f, 1.f));
-                break;
-            case LightingMode::Night:
-                mSunLight->setPosition(osg::Vec4f(0.f, 0.f, 1.f, 0.f));
-                mSunLight->setAmbient(osg::Vec4f(0.f, 0.f, 0.f, 1.f));
-                mSunLight->setDiffuse(osg::Vec4f(0.2f, 0.2f, 0.2f, 1.f));
-                mStateUpdater->setAmbientColor(
-                    mHasDefaultAmbient ? mDefaultAmbient : osg::Vec4f(0.2f, 0.2f, 0.2f, 1.f));
-                index = mIsExterior ? 1 : 0;
-                break;
-            case LightingMode::Bright:
-                mSunLight->setPosition(osg::Vec4f(0.f, 0.f, 1.f, 0.f));
-                mSunLight->setAmbient(osg::Vec4f(0.f, 0.f, 0.f, 1.f));
-                mSunLight->setDiffuse(osg::Vec4f(1.f, 1.f, 1.f, 1.f));
-                mStateUpdater->setAmbientColor(osg::Vec4f(1.f, 1.f, 1.f, 1.f));
-                break;
-        }
+        if (mLighting)
+            mLighting->deactivate();
 
-        DayNightSwitchVisitor visitor(index);
-        mRootNode->accept(visitor);
+        mLighting = lighting;
+        mLighting->activate(mRootNode, mIsExterior);
+
+        osg::Vec4f ambient = mLighting->getAmbientColour(mHasDefaultAmbient ? &mDefaultAmbient : nullptr);
+        setAmbient(ambient);
 
         flagAsModified();
+    }
+
+    void SceneWidget::setAmbient(const osg::Vec4f& ambient)
+    {
+        osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+        osg::ref_ptr<osg::LightModel> lightmodel = new osg::LightModel;
+        lightmodel->setAmbientIntensity(ambient);
+        stateset->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+        stateset->setMode(GL_LIGHT0, osg::StateAttribute::ON);
+        stateset->setAttributeAndModes(lightmodel, osg::StateAttribute::ON);
+        mRootNode->setStateSet(stateset);
     }
 
     void SceneWidget::selectLightingMode(const std::string& mode)
@@ -418,19 +336,19 @@ namespace CSVRender
         {
             backgroundColour = CSMPrefs::get()["Rendering"]["scene-day-background-colour"].toColor();
             gradientColour = CSMPrefs::get()["Rendering"]["scene-day-gradient-colour"].toColor();
-            setLighting(LightingMode::Day);
+            setLighting(&mLightingDay);
         }
         else if (mode == "night")
         {
             backgroundColour = CSMPrefs::get()["Rendering"]["scene-night-background-colour"].toColor();
             gradientColour = CSMPrefs::get()["Rendering"]["scene-night-gradient-colour"].toColor();
-            setLighting(LightingMode::Night);
+            setLighting(&mLightingNight);
         }
         else if (mode == "bright")
         {
             backgroundColour = CSMPrefs::get()["Rendering"]["scene-bright-background-colour"].toColor();
             gradientColour = CSMPrefs::get()["Rendering"]["scene-bright-gradient-colour"].toColor();
-            setLighting(LightingMode::Bright);
+            setLighting(&mLightingBright);
         }
         if (CSMPrefs::get()["Rendering"]["scene-use-gradient"].isTrue())
         {
@@ -499,6 +417,8 @@ namespace CSVRender
     {
         mDefaultAmbient = colour;
         mHasDefaultAmbient = true;
+
+        setAmbient(mLighting->getAmbientColour(&mDefaultAmbient));
     }
 
     void SceneWidget::setExterior(bool isExterior)
@@ -517,16 +437,6 @@ namespace CSVRender
     void SceneWidget::wheelEvent(QWheelEvent* event)
     {
         mCurrentCamControl->handleMouseScrollEvent(event->angleDelta().y());
-    }
-
-    void SceneWidget::resizeEvent(QResizeEvent* event)
-    {
-        updateCameraParameters(width() / static_cast<double>(height()));
-    }
-
-    void SceneWidget::showEvent(QShowEvent* event)
-    {
-        updateCameraParameters(width() / static_cast<double>(height()));
     }
 
     void SceneWidget::update(double dt)
@@ -631,14 +541,15 @@ namespace CSVRender
         }
         else if (*setting == "Rendering/scene-day-night-switch-nodes")
         {
-            setLighting(mLightingMode);
+            if (mLighting)
+                setLighting(mLighting);
         }
     }
 
     void RenderWidget::updateCameraParameters(double overrideAspect)
     {
         const float nearDist = 1.0;
-        const float farDist = 8192.0 * 100;
+        const float farDist = 1000.0;
 
         if (CSMPrefs::get()["Rendering"]["camera-ortho"].isTrue())
         {
@@ -654,14 +565,6 @@ namespace CSVRender
             mView->getCamera()->setProjectionMatrixAsPerspective(CSMPrefs::get()["Rendering"]["camera-fov"].toInt(),
                 static_cast<double>(width()) / static_cast<double>(height()), nearDist, farDist);
         }
-
-        mSharedUniformStateUpdater->setScreenRes(width(), height());
-        mSharedUniformStateUpdater->setNear(nearDist);
-        mSharedUniformStateUpdater->setFar(farDist);
-        mPerViewUniformStateUpdater->setProjectionMatrix(mView->getCamera()->getProjectionMatrix());
-
-        mStateUpdater->setFogStart(nearDist);
-        mStateUpdater->setFogEnd(farDist);
     }
 
     void SceneWidget::selectNavigationMode(const std::string& mode)

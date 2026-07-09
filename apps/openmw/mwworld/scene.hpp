@@ -8,6 +8,7 @@
 #include "positioncellgrid.hpp"
 #include "ptr.hpp"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -108,6 +109,10 @@ namespace MWWorld
 
         osg::Vec3f mLastPlayerPos;
 
+#if defined(__vita__) || defined(__3DS__)
+        osg::Vec3f mSmoothedMoveDir{ 0.0f, 0.0f, 0.0f };
+#endif
+
         std::vector<ESM::RefNum> mPagedRefs;
 
         std::vector<osg::ref_ptr<SceneUtil::WorkItem>> mWorkItems;
@@ -130,7 +135,7 @@ namespace MWWorld
         void preloadFastTravelDestinations(
             const osg::Vec3f& playerPos, std::vector<PositionCellGrid>& exteriorPositions);
         void preloadCellWithSurroundings(MWWorld::CellStore& cell);
-        void preloadCell(MWWorld::CellStore& cell);
+        void preloadCell(MWWorld::CellStore& cell, bool urgent = false);
         void preloadTerrain(const osg::Vec3f& pos, ESM::RefId worldspace, bool sync = false);
 
         osg::Vec4i gridCenterToBounds(const osg::Vec2i& centerCell) const;
@@ -139,6 +144,90 @@ namespace MWWorld
         void unloadCell(CellStore* cell, const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
         void loadCell(CellStore& cell, Loading::Listener* loadingListener, bool respawn, const osg::Vec3f& position,
             const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+
+#if defined(__vita__) || defined(__3DS__)
+        enum class CellLoadTier { Full, Lite };
+        std::map<CellStore*, CellLoadTier> mCellLoadTiers;
+
+        struct PendingCellLoad {
+            CellStore* cell;
+            bool objectsCollected = false;  // whether we've collected the object list
+            std::vector<Ptr> objectsToInsert;  // filtered lite-type objects to insert
+            int nextObject = 0;  // index into objectsToInsert
+            bool renderingDone = false;  // first pass (rendering) complete
+            bool physicsDone = false;  // second pass (physics/nav) complete
+            bool batchingDone = false;
+        };
+        std::vector<PendingCellLoad> mPendingCellLoads;
+        // Per-frame deferred-load budget. Each addObject call costs 0.4-3 ms;
+        // 3 keeps worst-case at ~9 ms (≈30% of a 30 fps budget) instead of
+        // the 24 ms burst that 8 produced. Slower load tail, smoother frames.
+        static constexpr int kObjectsPerFrame = 3;
+
+        // Async demote: a cell that needs to drop Full→Lite (typically the
+        // came-from exterior cells when player enters an interior) is queued
+        // here instead of being synchronously gutted in the unload loop.
+        // Its tier stays Full until processPendingDemotions drains it,
+        // which avoids the 100-400 ms hang on every interior entry.
+        struct PendingDemotion
+        {
+            CellStore* cell = nullptr;
+            std::vector<Ptr> toRemove;
+            int nextIdx = 0;
+            bool collected = false;
+        };
+        std::vector<PendingDemotion> mPendingDemotions;
+        static constexpr int kDemotionsPerFrame = 8;
+
+        // Per-object helper used by demoteCellToLite + the async drainer +
+        // sync flush. Mutates mechanics/lua/physics/navigator/rendering
+        // state and clears the object's base node.
+        void removeNonLiteObject(const Ptr& ptr,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+
+        void processPendingDemotions();
+        // Force a single cell's pending demote to complete now — used by
+        // any code path that needs the cell in its final tier (sync
+        // changeCellGrid tier transitions, save serialization, unload).
+        void flushPendingDemotion(CellStore* cell);
+
+        // Async promote — mirror of demote. promoteCellToFull queues a cell
+        // here, flips its tier to Full immediately so subsequent grid
+        // changes don't re-promote, then streams in non-lite objects across
+        // several frames sorted by priority (NPCs/creatures first, lights
+        // second, clutter last). Eliminates the 200-600 ms hang during
+        // fade-out when exiting an interior to a populated exterior cell.
+        struct PendingPromotion
+        {
+            CellStore* cell = nullptr;
+            bool collected = false;
+            bool scriptsRegistered = false;
+            bool respawnDone = false;
+            std::vector<Ptr> toInsert; // priority-sorted
+            int nextRender = 0;
+            int nextPhysics = 0;
+        };
+        std::vector<PendingPromotion> mPendingPromotions;
+        static constexpr int kPromotionsPerFrame = 4;
+
+        void processPendingPromotions();
+        // Force a single cell's pending promote to complete now.
+        void flushPendingPromotion(CellStore* cell);
+
+        void insertCellLite(CellStore& cell, Loading::Listener* loadingListener,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void loadCellLite(CellStore& cell, Loading::Listener* loadingListener,
+            const osg::Vec3f& position, const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void prepareCellForDeferredLoad(CellStore& cell, const osg::Vec3f& position,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void processPendingCellLoads();
+        void promoteCellToFull(CellStore& cell, Loading::Listener* loadingListener,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void demoteCellToLite(CellStore& cell,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void vitaBatchCell(CellStore& cell);
+        static bool isLiteType(unsigned int recType);
+#endif
 
     public:
         Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::PhysicsSystem* physics,

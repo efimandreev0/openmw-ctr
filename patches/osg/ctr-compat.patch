@@ -1,0 +1,86 @@
+Nintendo 3DS (CTR) compatibility patch for OpenSceneGraph (OSG):
+  - alias stat64 -> stat (newlib has no stat64)
+  - fall back PATH_MAX to 4096 (newlib omits it from <limits.h>)
+  - route getGLExtensionFuncPtr through NovaGL's novaglGetProcAddress
+    (newlib dlsym is non-functional; Unix fallback returns NULL)
+  - drop glGetRenderbufferParameteriv from isFrameBufferObjectSupported
+    check (NovaGL never exposes it, which otherwise disables all FBO RTT)
+  - cast RefMatrixf to Matrixd for ambiguous operator!= under OSG_USE_FLOAT_MATRIX
+
+--- a/src/osgDB/FileUtils.cpp
++++ b/src/osgDB/FileUtils.cpp
+@@ -98,6 +98,10 @@
+ #if defined(__ANDROID__)
+     #define stat64 stat
+ #endif
++
++#if defined(__3DS__)
++    #define stat64 stat
++#endif
+
+     // set up _S_ISDIR()
+ #if !defined(S_ISDIR)
+--- a/src/osgDB/FileNameUtils.cpp
++++ b/src/osgDB/FileNameUtils.cpp
+@@ -29,8 +29,8 @@
+     using std::tolower;
+ #endif
+
+-#if defined(__GNU__) && !defined(PATH_MAX)
+-#define PATH_MAX 4096
++#ifndef PATH_MAX
++#define PATH_MAX 4096
+ #endif
+
+ using namespace std;
+--- a/src/osg/GLExtensions.cpp
++++ b/src/osg/GLExtensions.cpp
+@@ -318,6 +318,13 @@
+
+ OSG_INIT_SINGLETON_PROXY(GLExtensionDisableStringInitializationProxy, osg::getGLExtensionDisableString())
+
++#if defined(__3DS__)
++// NovaGL's proctable lookup; declared here (namespace scope) to avoid pulling
++// NovaGL.h into OSG's translation unit (its macros collide with OSG's types).
++extern "C" void *novaglGetProcAddress(const char *name);
++#endif
++
++
+ #ifdef OSG_GL_LIBRARY_STATIC
+
+     #include "GLStaticLibrary.h"
+@@ -330,7 +337,11 @@
+     void* osg::getGLExtensionFuncPtr(const char *funcName)
+     {
+         // OSG_NOTICE<<"osg::getGLExtensionFuncPtr("<<funcName<<")"<<std::endl;
+-    #if defined(__ANDROID__)
++    #if defined(__3DS__)
++        // newlib's dlsym is non-functional on 3DS; the generic Unix fallback
++        // below returns NULL. Route through NovaGL's static proctable.
++        return novaglGetProcAddress(funcName);
++    #elif defined(__ANDROID__)
+         #if defined(OSG_GLES1_AVAILABLE)
+             static void *handle = dlopen("libGLESv1_CM.so", RTLD_NOW);
+         #elif defined(OSG_GLES2_AVAILABLE)
+@@ -1156,5 +1167,7 @@
+         glFramebufferTexture2D != 0 &&
+         glFramebufferRenderbuffer != 0 &&
+         glGenerateMipmap != 0 &&
+-        glGetRenderbufferParameteriv != 0 &&
++#ifndef __3DS__
++        glGetRenderbufferParameteriv != 0 &&
++#endif
+     ( OSG_GLES2_FEATURES || OSG_GLES1_FEATURES || isGLExtensionOrVersionSupported(contextID, "GL_EXT_framebuffer_object",3.0f) );
+--- a/src/osgShadow/MinimalCullBoundsShadowMap.cpp
++++ b/src/osgShadow/MinimalCullBoundsShadowMap.cpp
+@@ -75,7 +75,9 @@
+             *_cv->getModelViewMatrix() * *_cv->getProjectionMatrix() );
+
+     osg::BoundingBox bb;
+-    if( *_cv->getProjectionMatrix() != _clampedProjection ) {
++    // CTR: OSG_USE_FLOAT_MATRIX makes RefMatrix = Matrixf, but
++    // _clampedProjection is Matrixd. Cast to disambiguate the comparison.
++    if( osg::Matrixd(*_cv->getProjectionMatrix()) != _clampedProjection ) {
+
+         osg::Polytope polytope;
+ #if 1

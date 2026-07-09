@@ -86,6 +86,9 @@ namespace MWRender
 
         void removeCell(const MWWorld::CellStore* store);
 
+        /// Get the root scene node for a given cell, or nullptr if not found
+        osg::Group* getCellRoot(const MWWorld::CellStore* store);
+
         /// Updates containing cell for object rendering data
         void updatePtr(const MWWorld::Ptr& old, const MWWorld::Ptr& cur);
 

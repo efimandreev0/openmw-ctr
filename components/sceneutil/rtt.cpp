@@ -190,9 +190,6 @@ namespace SceneUtil
             camera->setViewport(0, 0, mTextureWidth, mTextureHeight);
             SceneUtil::setCameraClearDepth(camera);
 
-            camera->getOrCreateStateSet()->addUniform(new osg::Uniform(
-                "screenRes", osg::Vec2f(static_cast<float>(mTextureWidth), static_cast<float>(mTextureHeight))));
-
             setDefaults(camera);
 
             if (camera->getBufferAttachmentMap().count(osg::Camera::COLOR_BUFFER))
@@ -245,8 +242,11 @@ namespace SceneUtil
 
                 if (camera->getBufferAttachmentMap().count(osg::Camera::PACKED_DEPTH_STENCIL_BUFFER) == 0)
                 {
+#if !defined(__vita__) && !defined(__3DS__)
+                    // vitaGL rejects non-color FBO attachments; it uses a hidden depth buffer.
                     vdd->mDepthTexture = createTexture(mDepthBufferInternalFormat);
                     camera->attach(osg::Camera::PACKED_DEPTH_STENCIL_BUFFER, vdd->mDepthTexture, 0, 0, false, mSamples);
+#endif
                 }
             }
 

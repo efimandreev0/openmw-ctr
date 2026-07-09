@@ -45,7 +45,17 @@ namespace MWGui
     void ResourceImageSetPointerFix::setImage(MyGUI::ImageBox* image)
     {
         if (mImageSet != nullptr)
+        {
+#if defined(__vita__) || defined(__3DS__)
+            // On Vita we use MyGUI's software pointer (no hardware cursor support).
+            // setItemResourceInfo() produces degenerate UVs because the XML Group
+            // has no size attribute (group size = 0,0). Use setImageTexture() which
+            // maps the full texture (UV 0,0 to 1,1) when no items are configured.
+            image->setImageTexture(std::string(mImageSet->getIndexInfo(0, 0).texture));
+#else
             image->setItemResourceInfo(mImageSet->getIndexInfo(0, 0));
+#endif
+        }
     }
 
     void ResourceImageSetPointerFix::setPosition(MyGUI::ImageBox* image, const MyGUI::IntPoint& point)

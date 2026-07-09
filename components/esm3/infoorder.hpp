@@ -86,7 +86,20 @@ namespace ESM
 
         void extractOrderedInfo(std::list<T>& info)
         {
+#if defined(__3DS__) || defined(__vita__)
+            // Handhelds: MOVE the ordered list out instead of deep-copying,
+            // and release our copy. The stock code copies mOrderedInfo into
+            // `info` (Dialogue::mInfo) and keeps mOrderedInfo populated, so
+            // all ~32k DialInfo records lived in TWO full std::lists (~9MB
+            // wasted on 3DS). The only runtime readers of getOrderedInfo()
+            // (OpFillJournal in mwscript/dialogueextensions.cpp) are
+            // repointed to Dialogue::mInfo, which holds the same records in
+            // the same order.
+            info = std::move(mOrderedInfo);
+            mOrderedInfo.clear();
+#else
             info = mOrderedInfo;
+#endif
             mInfoPositions.clear();
         }
 

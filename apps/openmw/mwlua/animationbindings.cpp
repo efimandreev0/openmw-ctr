@@ -1,7 +1,6 @@
 #include "animationbindings.hpp"
 
 #include <components/lua/luastate.hpp>
-#include <components/lua/utilpackage.hpp>
 #include <components/misc/finitevalues.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -244,26 +243,15 @@ namespace MWLua
         api["addVfx"] = [context](const SelfObject& object, std::string_view model, sol::optional<sol::table> options) {
             if (options)
             {
-                sol::object transformObject = options->get<sol::object>("transform");
-                std::optional<osg::Matrix> transform;
-                if (transformObject.is<LuaUtil::TransformM>())
-                    transform = LuaUtil::cast<LuaUtil::TransformM>(transformObject).mM;
-                else if (transformObject.is<LuaUtil::TransformQ>())
-                    transform = osg::Matrix(LuaUtil::cast<LuaUtil::TransformQ>(transformObject).mQ);
-                if (transform.has_value() && !transform->valid())
-                    throw std::runtime_error("Transform provided for 'addVfx' is invalid");
-
                 context.mLuaManager->addAction(
                     [object = Object(object), model = std::string(model),
                         effectId = options->get_or<std::string>("vfxId", ""), loop = options->get_or("loop", false),
                         boneName = options->get_or<std::string>("boneName", ""),
                         particleTexture = options->get_or<std::string>("particleTextureOverride", ""),
-                        useAmbientLight = options->get_or("useAmbientLight", true),
-                        autoTransform = options->get_or("autoTransform", true), transform] {
+                        useAmbientLight = options->get_or("useAmbientLight", true)] {
                         MWRender::Animation* anim = getMutableAnimationOrThrow(object);
 
-                        anim->addEffect(model, effectId, loop, boneName, particleTexture, useAmbientLight,
-                            autoTransform, transform);
+                        anim->addEffect(model, effectId, loop, boneName, particleTexture, useAmbientLight);
                     },
                     "addVfxAction");
             }

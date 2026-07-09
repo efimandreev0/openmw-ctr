@@ -68,8 +68,16 @@ namespace MWInput
         bool mGuiCursorEnabled;
         bool mJoystickLastUsed;
         bool mGamepadMousePressed;
-        bool mLeftTriggerGuiPressed;
-        bool mRightTriggerGuiPressed;
+#if defined(__vita__) || defined(__3DS__)
+        bool mSelectHeld = false;
+        bool mSelectUsedAsModifier = false;
+#endif
+#ifdef __3DS__
+        // Axis state mirrored from synthesized SDL events: the n3ds SDL
+        // joystick driver never fills the state SDL_GameControllerGetAxis
+        // polls, so getAxisValue() reads this instead (fed by axisMoved).
+        float mCtrAxisMirror[SDL_CONTROLLER_AXIS_MAX] = {};
+#endif
     };
 }
 #endif

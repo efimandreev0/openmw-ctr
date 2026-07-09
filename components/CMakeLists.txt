@@ -137,10 +137,10 @@ add_component_dir (shader
     )
 
 add_component_dir (sceneutil
-    clone attach visitor util statesetupdater stateupdater controller skeleton riggeometry morphgeometry lightcontroller
+    clone attach visitor util statesetupdater controller skeleton riggeometry morphgeometry lightcontroller
     lightmanager lightutil positionattitudetransform workqueue pathgridutil waterutil writescene serialize optimizer
     detourdebugdraw navmesh agentpath animblendrules shadow mwshadowtechnique recastmesh shadowsbin osgacontroller rtt
-    screencapture depth color riggeometryosgaextension extradata unrefqueue lightcommon clearcolor
+    screencapture depth color riggeometryosgaextension extradata unrefqueue lightcommon lightingmethod clearcolor
     cullsafeboundsvisitor keyframe nodecallback textkeymap glextensions
     )
 
@@ -149,7 +149,7 @@ add_component_dir (nif
     )
 
 add_component_dir (nifosg
-    autotransform nifloader controller particle matrixtransform fog
+    nifloader controller particle matrixtransform fog
     )
 
 add_component_dir (nifbullet
@@ -179,7 +179,7 @@ add_component_dir(fx pass technique lexer lexertypes parseconstants widgets stat
 add_component_dir(std140 ubo)
 
 add_component_dir (esm3
-    esmreader esmwriter loadacti loadalch loadappa loadarmo loadbody loadbook loadbsgn loadcell
+    ctrstrpool ctrinfoblob esmreader esmwriter loadacti loadalch loadappa loadarmo loadbody loadbook loadbsgn loadcell
     loadclas loadclot loadcont loadcrea loaddial loaddoor loadench loadfact loadglob loadgmst
     loadinfo loadingr loadland loadlevlist loadligh loadlock loadprob loadrepa loadltex loadmgef loadmisc
     loadnpc loadpgrd loadrace loadregn loadscpt loadskil loadsndg loadsoun loadspel loadsscr loadstat
@@ -318,9 +318,9 @@ IF(NOT WIN32 AND NOT APPLE)
     add_compile_definitions(GLOBAL_CONFIG_PATH="${GLOBAL_CONFIG_PATH}")
 ENDIF()
 add_component_dir (files
-    linuxpath androidpath windowspath macospath fixedpath multidircollection collections configurationmanager
+    linuxpath androidpath windowspath macospath vitapath fixedpath multidircollection collections configurationmanager
     constrainedfilestream memorystream hash configfileparser openfile constrainedfilestreambuf conversion
-    istreamptr streamwithbuffer utils
+    istreamptr streamwithbuffer utils scancache
     )
 
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND NOT CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
@@ -399,9 +399,22 @@ if(WIN32)
         windowscrashmonitor
         windowscrashshm
     )
-elseif(NOT ANDROID)
+elseif(NOT ANDROID AND NOT VITA AND NOT CTR)
     add_component_dir (crashcatcher
         crashcatcher
+    )
+endif()
+
+if(VITA)
+    add_component_dir(vita
+        VitaShader
+        CellCullCallback
+    )
+endif()
+
+if(CTR)
+    add_component_dir(vita
+        CellCullCallback
     )
 endif()
 
@@ -577,12 +590,7 @@ endif()
 
 include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
-if (OPENMW_USE_SYSTEM_SQLITE3)
-    find_package(SQLite3 REQUIRED)
-    if(NOT TARGET SQLite3::SQLite3) # CMake < 4.3
-        add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
-    endif()
-endif()
+find_package(SQLite3 REQUIRED)
 
 add_library(components STATIC ${COMPONENT_FILES})
 
@@ -595,6 +603,8 @@ if (APPLE)
 endif()
 
 target_link_libraries(components
+    ${COLLADA_DOM_LIBRARIES}
+
     # CMake's built-in OSG finder does not use pkgconfig, so we have to
     # manually ensure the order is correct for inter-library dependencies.
     # This only makes a difference with `-DOPENMW_USE_SYSTEM_OSG=ON -DOSG_STATIC=ON`.
@@ -624,7 +634,7 @@ target_link_libraries(components
     RecastNavigation::Recast
 
     Base64
-    SQLite3::SQLite3
+    SQLite::SQLite3
     smhasher
     ${ICU_LIBRARIES}
     ZLIB::ZLIB
@@ -700,7 +710,7 @@ if(OSG_STATIC)
     # We use --whole-archive because OSG plugins use registration.
     get_whole_archive_options(_opts ${_osg_plugins_static_files})
     target_link_options(components_osg_plugins INTERFACE ${_opts})
-    target_link_libraries(components components_osg_plugins ${COLLADA_DOM_LIBRARIES})
+    target_link_libraries(components components_osg_plugins)
 
     if(OPENMW_USE_SYSTEM_OSG)
         # OSG plugin pkgconfig files are missing these dependencies.

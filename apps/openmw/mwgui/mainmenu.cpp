@@ -78,12 +78,6 @@ namespace MWGui
         mVideo->setVisible(true);
     }
 
-    void MenuVideo::commitFrame()
-    {
-        if (mVideo)
-            mVideo->commitFrame();
-    }
-
     MenuVideo::~MenuVideo()
     {
         mRunning = false;
@@ -107,11 +101,19 @@ namespace MWGui
         , mBackground(nullptr)
     {
         getWidget(mVersionText, "VersionText");
+#if defined(__vita__) || defined(__3DS__)
+        mVersionText->setCaption(versionDescription + "\n#{FFDD44}Hold SELECT at boot to rescan mods");
+#else
         mVersionText->setCaption(versionDescription);
+#endif
 
         constexpr VFS::Path::NormalizedView menuBackgroundVideo("video/menu_background.bik");
 
+#if defined(__vita__) || defined(__3DS__)
+        mHasAnimatedMenu = false; // Video playback disabled on Vita for now
+#else
         mHasAnimatedMenu = mVFS->exists(menuBackgroundVideo);
+#endif
         mDisableGamepadCursor = Settings::gui().mControllerMenus;
 
         updateMenu();
@@ -277,12 +279,6 @@ namespace MWGui
             }
             mBackground->setVisible(true);
         }
-    }
-
-    void MainMenu::onFrame(float)
-    {
-        if (mVideo)
-            mVideo->commitFrame();
     }
 
     bool MainMenu::exit()

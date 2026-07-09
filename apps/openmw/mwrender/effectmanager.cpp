@@ -31,7 +31,7 @@ namespace MWRender
         const osg::Vec3f& worldPosition, float scale, bool isMagicVFX, bool useAmbientLight, std::string_view effectId,
         bool loop)
     {
-        osg::ref_ptr<osg::Node> node = mResourceSystem->getSceneManager()->getInstance(model);
+        osg::ref_ptr<osg::Node> node = mResourceSystem->getSceneManager()->getInstance(model, /*allowParticles=*/true);
 
         node->setNodeMask(Mask_Effect);
 
@@ -64,7 +64,8 @@ namespace MWRender
         if (useAmbientLight)
         {
             // Morrowind has a white ambient light attached to the root VFX node of the scenegraph
-            SceneUtil::configureSunAmbientOverride(osg::Vec4f(1, 1, 1, 1), node->getOrCreateStateSet());
+            node->getOrCreateStateSet()->setAttributeAndModes(
+                getVFXLightModelInstance(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
         }
 
         mResourceSystem->getSceneManager()->setUpNormalsRTForStateSet(node->getOrCreateStateSet(), false);

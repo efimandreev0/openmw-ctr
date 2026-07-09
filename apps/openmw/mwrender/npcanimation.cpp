@@ -39,54 +39,50 @@
 #include "../mwbase/soundmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaInit.h"
+#endif
+
 #include "actorutil.hpp"
 #include "postprocessor.hpp"
 #include "renderbin.hpp"
-#include "renderingmanager.hpp"
 #include "rotatecontroller.hpp"
 #include "vismask.hpp"
 
 namespace
 {
 
-    VFS::Path::Normalized getVampireHead(ESM::RefId race, bool female)
+    std::string getVampireHead(const ESM::RefId& race, bool female)
     {
-        static std::map<std::pair<ESM::RefId, bool>, const ESM::BodyPart*> sVampireMapping;
+        static std::map<std::pair<ESM::RefId, int>, const ESM::BodyPart*> sVampireMapping;
 
-        const std::pair<ESM::RefId, bool> key(race, female);
-        const ESM::BodyPart* vampireHead = nullptr;
+        std::pair<ESM::RefId, int> thisCombination = std::make_pair(race, int(female));
 
-        if (const auto it = sVampireMapping.find(key); it == sVampireMapping.end())
+        if (sVampireMapping.find(thisCombination) == sVampireMapping.end())
         {
             const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
-
-            for (const ESM::BodyPart& bodyPart : store.get<ESM::BodyPart>())
+            for (const ESM::BodyPart& bodypart : store.get<ESM::BodyPart>())
             {
-                if (!bodyPart.mData.mVampire)
+                if (!bodypart.mData.mVampire)
                     continue;
-                if (bodyPart.mData.mType != ESM::BodyPart::MT_Skin)
+                if (bodypart.mData.mType != ESM::BodyPart::MT_Skin)
                     continue;
-                if (bodyPart.mData.mPart != ESM::BodyPart::MP_Head)
+                if (bodypart.mData.mPart != ESM::BodyPart::MP_Head)
                     continue;
-                if (female != (bodyPart.mData.mFlags & ESM::BodyPart::BPF_Female))
+                if (female != (bodypart.mData.mFlags & ESM::BodyPart::BPF_Female))
                     continue;
-                if (!(bodyPart.mRace == race))
+                if (!(bodypart.mRace == race))
                     continue;
-
-                vampireHead = &bodyPart;
+                sVampireMapping[thisCombination] = &bodypart;
             }
-
-            sVampireMapping.emplace_hint(it, key, vampireHead);
-        }
-        else
-        {
-            vampireHead = it->second;
         }
 
-        if (vampireHead == nullptr)
-            return {};
+        sVampireMapping.emplace(thisCombination, nullptr);
 
-        return Misc::ResourceHelpers::correctMeshPath(vampireHead->mModel.getNormalized());
+        const ESM::BodyPart* bodyPart = sVampireMapping[thisCombination];
+        if (!bodyPart)
+            return std::string();
+        return Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(bodyPart->mModel)).value();
     }
 
 }
@@ -330,6 +326,7 @@ namespace MWRender
 
             mStateSet = new osg::StateSet;
             mStateSet->setAttributeAndModes(new osg::ColorMask(false, false, false, false), osg::StateAttribute::ON);
+            mStateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
         }
 
         void drawImplementation(
@@ -338,6 +335,14 @@ namespace MWRender
             osg::State* state = renderInfo.getState();
 
             PostProcessor* postProcessor = static_cast<PostProcessor*>(renderInfo.getCurrentCamera()->getUserData());
+
+            if (!postProcessor)
+            {
+                // No PostProcessor (e.g. Vita) — just draw normally with depth clear
+                glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                bin->drawImplementation(renderInfo, previous);
+                return;
+            }
 
             state->applyAttribute(mDepth);
 
@@ -373,9 +378,8 @@ namespace MWRender
     class OverrideFieldOfViewCallback : public osg::NodeCallback
     {
     public:
-        OverrideFieldOfViewCallback(float fov, RenderingManager* renderingManager)
+        OverrideFieldOfViewCallback(float fov)
             : mFov(fov)
-            , mRenderingManager(renderingManager)
         {
         }
 
@@ -388,15 +392,6 @@ namespace MWRender
                 fov = mFov;
                 osg::ref_ptr<osg::RefMatrix> newProjectionMatrix = new osg::RefMatrix();
                 newProjectionMatrix->makePerspective(fov, aspect, zNear, zFar);
-
-                osg::Vec2f offset = mRenderingManager->getProjectionOffset();
-
-                double offsetX = (offset.x() / cv->getViewport()->width()) * 2.0;
-                double offsetY = (offset.y() / cv->getViewport()->height()) * 2.0;
-
-                const osg::Matrix translation = osg::Matrix::translate(offsetX, offsetY, 0.0);
-                newProjectionMatrix->postMult(translation);
-
                 osg::ref_ptr<osg::RefMatrix> invertedOldMatrix = cv->getProjectionMatrix();
                 invertedOldMatrix = new osg::RefMatrix(osg::RefMatrix::inverse(*invertedOldMatrix));
                 osg::ref_ptr<osg::RefMatrix> viewMatrix = new osg::RefMatrix(*cv->getModelViewMatrix());
@@ -412,7 +407,6 @@ namespace MWRender
 
     private:
         float mFov;
-        RenderingManager* mRenderingManager;
     };
 
     void NpcAnimation::setRenderBin()
@@ -479,7 +473,7 @@ namespace MWRender
         {
             const ESM::BodyPart* bp = store.get<ESM::BodyPart>().search(headName);
             if (bp)
-                mHeadModel = Misc::ResourceHelpers::correctMeshPath(bp->mModel.getNormalized());
+                mHeadModel = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(bp->mModel));
             else
                 Log(Debug::Warning) << "Warning: Failed to load body part '" << headName << "'";
         }
@@ -488,14 +482,14 @@ namespace MWRender
         {
             const ESM::BodyPart* bp = store.get<ESM::BodyPart>().search(hairName);
             if (bp)
-                mHairModel = Misc::ResourceHelpers::correctMeshPath(bp->mModel.getNormalized());
+                mHairModel = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(bp->mModel));
             else
                 Log(Debug::Warning) << "Warning: Failed to load body part '" << hairName << "'";
         }
 
-        if (!isWerewolf && isVampire)
-            if (VFS::Path::Normalized vampireHead = getVampireHead(mNpc->mRace, isFemale); !vampireHead.empty())
-                mHeadModel = std::move(vampireHead);
+        const std::string vampireHead = getVampireHead(mNpc->mRace, isFemale);
+        if (!isWerewolf && isVampire && !vampireHead.empty())
+            mHeadModel = vampireHead;
 
         bool is1stPerson = mViewMode == VM_FirstPerson;
         bool isBeast = (race->mData.mFlags & ESM::Race::Beast) != 0;
@@ -517,7 +511,7 @@ namespace MWRender
         bool isCustomModel = false;
         if (!is1stPerson && !isWerewolf && !mNpc->mModel.empty())
         {
-            const VFS::Path::Normalized model = Misc::ResourceHelpers::correctMeshPath(mNpc->mModel.getNormalized());
+            VFS::Path::Normalized model = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(mNpc->mModel));
             isCustomModel = !isDefaultActorSkeleton(model);
             smodel = Misc::ResourceHelpers::correctActorModelPath(model, mResourceSystem->getVFS());
         }
@@ -542,8 +536,7 @@ namespace MWRender
         if (is1stPerson)
         {
             mObjectRoot->setNodeMask(Mask_FirstPerson);
-            mObjectRoot->addCullCallback(new OverrideFieldOfViewCallback(
-                mFirstPersonFieldOfView, MWBase::Environment::get().getWorld()->getRenderingManager()));
+            mObjectRoot->addCullCallback(new OverrideFieldOfViewCallback(mFirstPersonFieldOfView));
         }
 
         mWeaponAnimationTime->updateStartTime();
@@ -665,7 +658,7 @@ namespace MWRender
             {
                 const ESM::Light* light = part.get<ESM::Light>()->mBase;
                 addOrReplaceIndividualPart(ESM::PRT_Shield, MWWorld::InventoryStore::Slot_CarriedLeft, 1,
-                    Misc::ResourceHelpers::correctMeshPath(light->mModel.getNormalized()), false, nullptr, true);
+                    Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(light->mModel)), false, nullptr, true);
                 if (mObjectParts[ESM::PRT_Shield])
                     addExtraLight(mObjectParts[ESM::PRT_Shield]->getNode()->asGroup(), SceneUtil::LightCommon(*light));
             }
@@ -685,7 +678,7 @@ namespace MWRender
             {
                 if (const ESM::BodyPart* bodypart = parts[part])
                     addOrReplaceIndividualPart(static_cast<ESM::PartReferenceType>(part), -1, 1,
-                        Misc::ResourceHelpers::correctMeshPath(bodypart->mModel.getNormalized()));
+                        Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(bodypart->mModel)));
             }
         }
 
@@ -804,6 +797,15 @@ namespace MWRender
         catch (std::exception& e)
         {
             Log(Debug::Error) << "Error adding NPC part: " << e.what();
+#if defined(__vita__) || defined(__3DS__)
+            {
+                char buf[256];
+                std::string meshStr(mesh.value());
+                snprintf(buf, sizeof(buf), "NPC PART FAIL: type=%d mesh=%.60s err=%.80s",
+                    (int)type, meshStr.c_str(), e.what());
+                Vita::breadcrumb(buf);
+            }
+#endif
             return false;
         }
 
@@ -915,7 +917,8 @@ namespace MWRender
 
             if (bodypart)
                 addOrReplaceIndividualPart(static_cast<ESM::PartReferenceType>(part.mPart), group, priority,
-                    Misc::ResourceHelpers::correctMeshPath(bodypart->mModel.getNormalized()), enchantedGlow, glowColor);
+                    Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(bodypart->mModel)), enchantedGlow,
+                    glowColor);
             else
                 reserveIndividualPart((ESM::PartReferenceType)part.mPart, group, priority);
         }

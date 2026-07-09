@@ -297,7 +297,7 @@ namespace
         if (animation && !absorbStatic->mModel.empty())
         {
             const VFS::Path::Normalized absorbStaticModel
-                = Misc::ResourceHelpers::correctMeshPath(absorbStatic->mModel.getNormalized());
+                = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(absorbStatic->mModel));
             animation->addEffect(absorbStaticModel.value(), ESM::MagicEffect::SpellAbsorption.getValue(), false);
         }
 
@@ -486,7 +486,7 @@ namespace MWMechanics
                         if (fx != nullptr)
                         {
                             const VFS::Path::Normalized fxModel
-                                = Misc::ResourceHelpers::correctMeshPath(fx->mModel.getNormalized());
+                                = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(fx->mModel));
                             anim->addEffect(fxModel.value(), "");
                         }
                     }

@@ -6,6 +6,8 @@
 #include <SDL_events.h>
 #include <SDL_version.h>
 
+#include <functional>
+
 #include "events.hpp"
 
 namespace osgViewer
@@ -75,13 +77,28 @@ namespace SDLUtil
         Sint32 mMouseZ;
         Sint32 mMouseX;
         Sint32 mMouseY;
-        double mPendingWheelY;
 
         bool mWindowHasFocus;
         bool mMouseInWindow;
 
         Uint16 mScaleX;
         Uint16 mScaleY;
+
+#if defined(__vita__) || defined(__3DS__)
+        bool mTouchZoneLeft = false;   // top-left touch zone active
+        bool mTouchZoneRight = false;  // top-right touch zone active
+        // Touch drives the MyGUI cursor only when this returns true (GUI mode).
+        std::function<bool()> mTouchCursorEnabled;
+        SDL_FingerID mCursorFingerId = 0;
+        bool mCursorFingerActive = false;
+        // Back-touchpad → L2/R2 trigger mapping. State tracked per-half so
+        // pressing both at once (L2+R2) works.
+        bool mBackTouchL2 = false;
+        bool mBackTouchR2 = false;
+    public:
+        void setTouchCursorEnabledPredicate(std::function<bool()> pred) { mTouchCursorEnabled = std::move(pred); }
+    private:
+#endif
     };
 
 }

@@ -23,6 +23,8 @@ namespace MWRender
         float getFogStart(bool isUnderwater) const;
         float getFogEnd(bool isUnderwater) const;
 
+        void rescaleToViewDistance(float newViewDistance);
+
     private:
         float mLandFogStart;
         float mLandFogEnd;

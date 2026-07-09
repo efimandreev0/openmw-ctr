@@ -20,7 +20,6 @@
 #include "../mwworld/inventorystore.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
-#include "../mwmechanics/combat.hpp"
 #include "../mwmechanics/creaturestats.hpp"
 #include "../mwmechanics/magiceffects.hpp"
 #include "../mwmechanics/npcstats.hpp"
@@ -668,7 +667,7 @@ bool MWDialogue::Filter::getSelectStructBoolean(const SelectWrapper& select) con
 
         case ESM::DialogueCondition::Function_ShouldAttack:
 
-            return MWMechanics::isAggressive(mActor, MWMechanics::getPlayer());
+            return MWBase::Environment::get().getMechanicsManager()->isAggressive(mActor, MWMechanics::getPlayer());
 
         case ESM::DialogueCondition::Function_Werewolf:
 
@@ -742,8 +741,12 @@ std::vector<MWDialogue::Filter::Response> MWDialogue::Filter::list(
 
     bool infoRefusal = false;
 
-    // Iterate over topic responses to find a matching one
-    for (const auto& info : dialogue.mInfo)
+    // Iterate over topic responses to find a matching one.
+    // NOTE (3DS): readInfos() rematerializes baked infos through an LRU; the
+    // returned DialInfo pointers stay valid while the topic remains among the
+    // recently fetched ones — callers consume them in the same scope.
+    const auto dialogueInfos = dialogue.readInfos();
+    for (const auto& info : dialogueInfos)
     {
         if (testActor(info) && testPlayer(info) && testSelectStructs(info))
         {
@@ -767,7 +770,8 @@ std::vector<MWDialogue::Filter::Response> MWDialogue::Filter::list(
 
         const ESM::Dialogue& infoRefusalDialogue = *dialogues.find(ESM::RefId::stringRefId("Info Refusal"));
 
-        for (const auto& info : infoRefusalDialogue.mInfo)
+        const auto refusalInfos = infoRefusalDialogue.readInfos();
+        for (const auto& info : refusalInfos)
             if (testActor(info) && testPlayer(info) && testSelectStructs(info)
                 && testDisposition(info, invertDisposition))
             {

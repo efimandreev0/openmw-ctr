@@ -364,6 +364,41 @@ namespace MWInput
         // across different versions of OpenMW (in the case where another input action is added)
         std::map<int, int> defaultButtonBindings;
 
+#if defined(__vita__) || defined(__3DS__)
+        // Vita layout
+        // Face buttons:
+        //   ✕ = Activate    □ = Toggle Weapon    △ = Toggle Spell    ○ = Inventory/Back
+        // Shoulders (Xbox-style):
+        //   L = Jump    R = Attack/Use
+        // D-pad:
+        //   Up = Rest    Down = Sneak    Left = Cycle Weapon    Right = Cycle Spell
+        // System:
+        //   START = Game Menu    SELECT = Journal
+        // Touch zones (front screen corners):
+        //   Top-left = Toggle POV    Top-right = QuickSave
+        //   Start + Select = Console Commands
+        defaultButtonBindings[A_Activate] = SDL_CONTROLLER_BUTTON_A;                 // ✕
+        defaultButtonBindings[A_ToggleWeapon] = SDL_CONTROLLER_BUTTON_X;              // □
+        defaultButtonBindings[A_ToggleSpell] = SDL_CONTROLLER_BUTTON_Y;               // △
+        defaultButtonBindings[A_Inventory] = SDL_CONTROLLER_BUTTON_B;                // ○
+        defaultButtonBindings[A_Jump] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;           // L (Xbox LB)
+        defaultButtonBindings[A_Use] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;           // R (Xbox RB)
+        defaultButtonBindings[A_GameMenu] = SDL_CONTROLLER_BUTTON_START;
+        defaultButtonBindings[A_Journal] = SDL_CONTROLLER_BUTTON_BACK;               // SELECT
+        defaultButtonBindings[A_Rest] = SDL_CONTROLLER_BUTTON_DPAD_UP;
+        defaultButtonBindings[A_Sneak] = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+        defaultButtonBindings[A_CycleWeaponLeft] = SDL_CONTROLLER_BUTTON_DPAD_LEFT;
+        defaultButtonBindings[A_CycleSpellRight] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+        defaultButtonBindings[A_TogglePOV] = SDL_CONTROLLER_BUTTON_LEFTSTICK;        // Touch top-left
+        defaultButtonBindings[A_QuickSave] = SDL_CONTROLLER_BUTTON_RIGHTSTICK;       // Touch top-right
+
+        std::map<int, int> defaultAxisBindings;
+        defaultAxisBindings[A_MoveForwardBackward] = SDL_CONTROLLER_AXIS_LEFTY;
+        defaultAxisBindings[A_MoveLeftRight] = SDL_CONTROLLER_AXIS_LEFTX;
+        defaultAxisBindings[A_LookUpDown] = SDL_CONTROLLER_AXIS_RIGHTY;
+        defaultAxisBindings[A_LookLeftRight] = SDL_CONTROLLER_AXIS_RIGHTX;
+        // No trigger axis bindings — Vita has no analog triggers.
+#else
         defaultButtonBindings[A_Activate] = SDL_CONTROLLER_BUTTON_A;
         defaultButtonBindings[A_ToggleWeapon] = SDL_CONTROLLER_BUTTON_X;
         defaultButtonBindings[A_ToggleSpell] = SDL_CONTROLLER_BUTTON_Y;
@@ -384,6 +419,7 @@ namespace MWInput
         defaultAxisBindings[A_LookLeftRight] = SDL_CONTROLLER_AXIS_RIGHTX;
         defaultAxisBindings[A_Use] = SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
         defaultAxisBindings[A_Jump] = SDL_CONTROLLER_AXIS_TRIGGERLEFT;
+#endif
 
         for (int i = 0; i < A_Last; i++)
         {
@@ -708,7 +744,17 @@ namespace MWInput
             newFileName = Files::pathToUnicodeString(mUserFile) + ".new";
             if (mInputBinder->save(newFileName))
             {
-                std::filesystem::rename(Files::pathFromUnicodeString(newFileName), mUserFile);
+                // 3DS FS (and the citra sdmc backend) cannot rename over an
+                // existing file — the failed rename used to strand the .new
+                // and lose the previous bindings. Fall back to remove+rename.
+                std::error_code renameEc;
+                std::filesystem::rename(Files::pathFromUnicodeString(newFileName), mUserFile, renameEc);
+                if (renameEc)
+                {
+                    std::error_code removeEc;
+                    std::filesystem::remove(mUserFile, removeEc);
+                    std::filesystem::rename(Files::pathFromUnicodeString(newFileName), mUserFile);
+                }
                 Log(Debug::Info) << "Saved input bindings: " << mUserFile;
             }
             else

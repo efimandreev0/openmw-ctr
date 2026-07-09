@@ -21,6 +21,8 @@ namespace VFS
 
         std::string getStem() const override;
 
+        const std::filesystem::path& getPath() const { return mPath; }
+
     private:
         std::filesystem::path mPath;
     };
@@ -28,7 +30,10 @@ namespace VFS
     class FileSystemArchive : public Archive
     {
     public:
-        FileSystemArchive(const std::filesystem::path& path);
+        /// Walk `path` recursively. If `cacheFile` is set, load that instead and
+        /// write it on cache miss.
+        FileSystemArchive(const std::filesystem::path& path,
+            const std::filesystem::path& cacheFile = {});
 
         void listResources(FileMap& out) override;
 
@@ -37,6 +42,10 @@ namespace VFS
         std::string getDescription() const override;
 
     private:
+        bool loadCache(const std::filesystem::path& cacheFile);
+        void saveCache(const std::filesystem::path& cacheFile) const;
+        void walkDirectory();
+
         std::map<VFS::Path::Normalized, FileSystemArchiveFile, std::less<>> mIndex;
         std::filesystem::path mPath;
     };

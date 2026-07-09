@@ -29,7 +29,8 @@ namespace MWPhysics
     static bool isActor(const btCollisionObject* obj)
     {
         assert(obj);
-        return obj->getBroadphaseHandle()->m_collisionFilterGroup == CollisionType_Actor;
+        const auto* handle = obj->getBroadphaseHandle();
+        return handle && handle->m_collisionFilterGroup == CollisionType_Actor;
     }
 
     namespace
@@ -42,6 +43,13 @@ namespace MWPhysics
             {
                 m_collisionFilterGroup = me.getBroadphaseHandle()->m_collisionFilterGroup;
                 m_collisionFilterMask = me.getBroadphaseHandle()->m_collisionFilterMask & ~CollisionType_Projectile;
+            }
+
+            bool needsCollision(btBroadphaseProxy* proxy) const override
+            {
+                if (!proxy)
+                    return false;
+                return btCollisionWorld::ContactResultCallback::needsCollision(proxy);
             }
 
             btScalar addSingleResult(btManifoldPoint& contact, const btCollisionObjectWrapper* colObj0Wrap,

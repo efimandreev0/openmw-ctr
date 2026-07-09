@@ -135,8 +135,6 @@ namespace MWWorld
 
         const CustomData* getCustomData() const;
 
-        bool hasCustomData() const;
-
         bool activate();
 
         bool onActivate();

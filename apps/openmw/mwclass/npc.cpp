@@ -3,9 +3,8 @@
 #include <MyGUI_TextIterator.h>
 #include <MyGUI_UString.h>
 
-#include <format>
+#include <cassert>
 #include <memory>
-#include <stdexcept>
 
 #include <components/misc/constants.hpp>
 #include <components/misc/resourcehelpers.hpp>
@@ -437,18 +436,14 @@ namespace MWClass
     std::string_view Npc::getModel(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::NPC>* ref = ptr.get<ESM::NPC>();
-        const VFS::Path::NormalizedView model = [&]() -> VFS::Path::NormalizedView {
-            const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(ref->mBase->mRace);
-            if (race->mData.mFlags & ESM::Race::Beast)
-                return Settings::models().mBaseanimkna.get();
-            return Settings::models().mBaseanim.get();
-        }();
+        std::string_view model = Settings::models().mBaseanim.get();
+        const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(ref->mBase->mRace);
+        if (race->mData.mFlags & ESM::Race::Beast)
+            model = Settings::models().mBaseanimkna.get();
         // Base animations should be in the meshes dir
-        constexpr VFS::Path::NormalizedView prefix("meshes/");
-        if (!model.value().starts_with(prefix.value()))
-            throw std::runtime_error(std::format("NPC {} model path does not start with \"{}\": {}",
-                ref->mRef.getRefId().toDebugString(), prefix.value(), model.value()));
-        return model.value().substr(prefix.value().size());
+        constexpr std::string_view prefix = "meshes/";
+        assert(VFS::Path::pathEqual(prefix, model.substr(0, prefix.size())));
+        return model.substr(prefix.size());
     }
 
     VFS::Path::Normalized Npc::getCorrectedModel(const MWWorld::ConstPtr& ptr) const
@@ -469,19 +464,19 @@ namespace MWClass
         models.push_back(getModel(ptr));
 
         if (!npc->mBase->mModel.empty())
-            models.push_back(npc->mBase->mModel.getOriginal());
+            models.push_back(npc->mBase->mModel);
 
         if (!npc->mBase->mHead.empty())
         {
             const ESM::BodyPart* head = esmStore->get<ESM::BodyPart>().search(npc->mBase->mHead);
             if (head)
-                models.push_back(head->mModel.getOriginal());
+                models.push_back(head->mModel);
         }
         if (!npc->mBase->mHair.empty())
         {
             const ESM::BodyPart* hair = esmStore->get<ESM::BodyPart>().search(npc->mBase->mHair);
             if (hair)
-                models.push_back(hair->mModel.getOriginal());
+                models.push_back(hair->mModel);
         }
 
         bool female = (npc->mBase->mFlags & ESM::NPC::Female);
@@ -504,8 +499,8 @@ namespace MWClass
                                 : partRef.mMale;
 
                             const ESM::BodyPart* part = esmStore->get<ESM::BodyPart>().search(partname);
-                            if (part && !part->mModel.getOriginal().empty())
-                                models.push_back(part->mModel.getOriginal());
+                            if (part && !part->mModel.empty())
+                                models.push_back(part->mModel);
                         }
                     };
                     if (equipped->getType() == ESM::Clothing::sRecordId)
@@ -535,8 +530,8 @@ namespace MWClass
                 = MWRender::NpcAnimation::getBodyParts(race->mId, female, false, false);
             for (const ESM::BodyPart* part : parts)
             {
-                if (part && !part->mModel.getOriginal().empty())
-                    models.push_back(part->mModel.getOriginal());
+                if (part && !part->mModel.empty())
+                    models.push_back(part->mModel);
             }
         }
     }
@@ -801,11 +796,25 @@ namespace MWClass
         {
             // 'ptr' is losing health. Play a 'hit' voiced dialog entry if not already saying
             // something, alert the character controller, scripts, etc.
+
             const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+            const GMST& gmst = getGmst();
+
             int chance = store.get<ESM::GameSetting>().find("iVoiceHitOdds")->mValue.getInteger();
             auto& prng = MWBase::Environment::get().getWorld()->getPrng();
             if (Misc::Rng::roll0to99(prng) < chance)
                 MWBase::Environment::get().getDialogueManager()->say(ptr, ESM::RefId::stringRefId("hit"));
+
+            // Check for knockdown
+            float agilityTerm
+                = stats.getAttribute(ESM::Attribute::Agility).getModified() * gmst.fKnockDownMult->mValue.getFloat();
+            float knockdownTerm = stats.getAttribute(ESM::Attribute::Agility).getModified()
+                    * gmst.iKnockDownOddsMult->mValue.getInteger() * 0.01f
+                + gmst.iKnockDownOddsBase->mValue.getInteger();
+            if (hasHealthDamage && agilityTerm <= healthDamage && knockdownTerm <= Misc::Rng::roll0to99(prng))
+                stats.setKnockedDown(true);
+            else
+                stats.setHitRecovery(true); // Is this supposed to always occur?
         }
 
         if (hasHealthDamage && healthDamage > 0.0f)

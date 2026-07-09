@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cassert>
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#endif
 #include <fstream>
 
 #include <zlib.h>
@@ -133,7 +135,11 @@ namespace Bsa
         {
             if (((static_cast<unsigned>(c) >> 7U) & 1U) != 0U)
             {
+#if defined(__vita__) || defined(__3DS__)
+                fail("File record " + std::string(str) + " contains unicode characters, refusing to load.");
+#else
                 fail(std::format("File record {} contains unicode characters, refusing to load.", str));
+#endif
             }
         }
 

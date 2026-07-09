@@ -1,5 +1,9 @@
 #include "loadingscreen.hpp"
 
+#ifdef __3DS__
+#include "../vita/VitaInit.h"
+#endif
+
 #include <array>
 
 #include <osgViewer/Viewer>
@@ -34,7 +38,11 @@ namespace MWGui
         : WindowBase("openmw_loading_screen.layout")
         , mResourceSystem(resourceSystem)
         , mViewer(viewer)
+#if defined(__vita__) || defined(__3DS__)
+        , mTargetFrameRate(15.0)
+#else
         , mTargetFrameRate(120.0)
+#endif
         , mLastWallpaperChangeTime(0.0)
         , mLastRenderTime(0.0)
         , mLoadingOnTime(0.0)
@@ -68,8 +76,9 @@ namespace MWGui
         constexpr VFS::Path::NormalizedView splash("splash/");
         for (const auto& name : mResourceSystem->getVFS()->getRecursiveDirectoryIterator(splash))
         {
-            if (isSupportedExtension(Misc::getFileExtension(name)))
-                mSplashScreens.push_back(name);
+            const VFS::Path::NormalizedView nameView(name);
+            if (isSupportedExtension(Misc::getFileExtension(nameView.value())))
+                mSplashScreens.push_back(std::string(nameView.value()));
         }
         if (mSplashScreens.empty())
             Log(Debug::Warning) << "Warning: no splash screens found!";
@@ -207,8 +216,17 @@ namespace MWGui
 
     void LoadingScreen::changeWallpaper()
     {
+#ifdef __3DS__
+        // Splash art re-enabled: scripts/ctr/downscale_textures.py resizes
+        // Splash/*.tga to 256px (a ~0.25MB decode instead of the ~3MB
+        // 1024x1024 spike that OOM'd in simage_tga_load). Still skip the art
+        // when the heap is too close to the ceiling for even that.
+        if (!mSplashScreens.empty() && Vita::getFreeUserMemory() > 6u * 1024u * 1024u)
+        {
+#else
         if (!mSplashScreens.empty())
         {
+#endif
             std::string const& randomSplash = mSplashScreens.at(Misc::Rng::rollDice(mSplashScreens.size()));
 
             // TODO: add option (filename pattern?) to use image aspect ratio instead of 4:3
@@ -310,8 +328,7 @@ namespace MWGui
         mSplashImage->setVisible(false);
 
         mSceneImage->setRenderItemTexture(mGuiTexture.get());
-        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted
-        mSceneImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+        mSceneImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
         mSceneImage->setVisible(true);
     }
 
@@ -328,7 +345,13 @@ namespace MWGui
 
         if (!mShowWallpaper && mLastRenderTime < mLoadingOnTime)
         {
+#if !defined(__vita__) && !defined(__3DS__)
+            // Vita: glReadPixels from the back buffer causes a data abort
+            // (back buffer may be in GPU-only memory). Show wallpaper instead.
             setupCopyFramebufferToTextureCallback();
+#else
+            changeWallpaper();
+#endif
         }
 
         MWBase::Environment::get().getInputManager()->update(0, true, true);

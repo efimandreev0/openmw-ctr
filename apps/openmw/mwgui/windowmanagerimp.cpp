@@ -1,5 +1,9 @@
 #include "windowmanagerimp.hpp"
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaInit.h"
+#endif
+
 #include <algorithm>
 #include <cassert>
 #include <chrono>
@@ -150,7 +154,7 @@ namespace MWGui
     WindowManager::WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
         Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue, const std::filesystem::path& logpath,
         bool consoleOnlyScripts, Translation::Storage& translationDataStorage, ToUTF8::FromType encoding,
-        bool exportFonts, const std::string& versionDescription, Files::ConfigurationManager& cfgMgr)
+        bool exportFonts, const std::string& versionDescription, bool useShaders, Files::ConfigurationManager& cfgMgr)
         : mOldUpdateMask(0)
         , mOldCullMask(0)
         , mStore(nullptr)
@@ -263,6 +267,12 @@ namespace MWGui
         mLoadingScreen = loadingScreen.get();
         mWindows.push_back(std::move(loadingScreen));
 
+#if defined(__vita__) || defined(__3DS__)
+        // Vita SDL2 has no hardware cursor support — use MyGUI's software pointer
+        MyGUI::InputManager::getInstance().eventChangeKeyFocus
+            += MyGUI::newDelegate(this, &WindowManager::onKeyFocusChanged);
+        MyGUI::PointerManager::getInstance().setVisible(true);
+#else
         // set up the hardware cursor manager
         mCursorManager = std::make_unique<SDLUtil::SDLCursorManager>();
 
@@ -279,6 +289,7 @@ namespace MWGui
 
         // hide mygui's pointer
         MyGUI::PointerManager::getInstance().setVisible(false);
+#endif
 
         mVideoBackground = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>(
             "ImageBox", 0, 0, 1, 1, MyGUI::Align::Default, "Video");
@@ -304,13 +315,21 @@ namespace MWGui
         mVideoWrapper = std::make_unique<SDLUtil::VideoWrapper>(window, viewer);
         mVideoWrapper->setGammaContrast(Settings::video().mGamma, Settings::video().mContrast);
 
-        mGuiPlatform->getRenderManagerPtr()->enableShaders(mResourceSystem->getSceneManager()->getShaderManager());
+        if (useShaders)
+            mGuiPlatform->getRenderManagerPtr()->enableShaders(mResourceSystem->getSceneManager()->getShaderManager());
 
         mStatsWatcher = std::make_unique<StatsWatcher>();
     }
 
     void WindowManager::initUI()
     {
+#if defined(__vita__) || defined(__3DS__)
+// Timed breadcrumb + heap snapshot: attributes initUI's memory per window.
+#define UI_CRUMB(name) do { vitaTimedBreadcrumb("initUI: " name); Vita::logMemoryStatus("initUI " name); } while (0)
+#else
+#define UI_CRUMB(name) ((void)0)
+#endif
+        UI_CRUMB("enter");
         // Get size info from the Gui object
         int w = MyGUI::RenderManager::getInstance().getViewSize().width;
         int h = MyGUI::RenderManager::getInstance().getViewSize().height;
@@ -325,27 +344,35 @@ namespace MWGui
         mWindows.push_back(std::move(recharge));
 
         auto menu = std::make_unique<MainMenu>(w, h, mResourceSystem->getVFS(), mVersionDescription);
+        UI_CRUMB("MainMenu");
         mGuiModeStates[GM_MainMenu] = GuiModeState(menu.get());
         mWindows.push_back(std::move(menu));
 
         mLocalMapRender = std::make_unique<MWRender::LocalMap>(mViewer->getSceneData()->asGroup());
+        UI_CRUMB("LocalMap");
         auto map = std::make_unique<MapWindow>(mCustomMarkers, mDragAndDrop.get(), mLocalMapRender.get(), mWorkQueue);
+        UI_CRUMB("MapWindow");
         mMap = map.get();
         mWindows.push_back(std::move(map));
+#if !defined(__vita__) && !defined(__3DS__)
         mMap->renderGlobalMap();
+#endif
         trackWindow(mMap, makeMapWindowSettingValues());
 
         auto statsWindow = std::make_unique<StatsWindow>(mDragAndDrop.get());
+        UI_CRUMB("StatsWindow");
         mStatsWindow = statsWindow.get();
         mWindows.push_back(std::move(statsWindow));
         trackWindow(mStatsWindow, makeStatsWindowSettingValues());
 
         auto inventoryWindow = std::make_unique<InventoryWindow>(
             *mDragAndDrop, *mItemTransfer, mViewer->getSceneData()->asGroup(), mResourceSystem);
+        UI_CRUMB("InventoryWindow");
         mInventoryWindow = inventoryWindow.get();
         mWindows.push_back(std::move(inventoryWindow));
 
         auto spellWindow = std::make_unique<SpellWindow>(mDragAndDrop.get());
+        UI_CRUMB("SpellWindow");
         mSpellWindow = spellWindow.get();
         mWindows.push_back(std::move(spellWindow));
         trackWindow(mSpellWindow, makeSpellsWindowSettingValues());
@@ -354,12 +381,14 @@ namespace MWGui
         mGuiModeStates[GM_None] = GuiModeState({ mMap, mInventoryWindow, mSpellWindow, mStatsWindow });
 
         auto tradeWindow = std::make_unique<TradeWindow>();
+        UI_CRUMB("TradeWindow");
         mTradeWindow = tradeWindow.get();
         mWindows.push_back(std::move(tradeWindow));
         trackWindow(mTradeWindow, makeBarterWindowSettingValues());
         mGuiModeStates[GM_Barter] = GuiModeState({ mInventoryWindow, mTradeWindow });
 
         auto console = std::make_unique<Console>(w, h, mConsoleOnlyScripts, mCfgMgr);
+        UI_CRUMB("Console");
         mConsole = console.get();
         mWindows.push_back(std::move(console));
         trackWindow(mConsole, makeConsoleWindowSettingValues());
@@ -367,6 +396,7 @@ namespace MWGui
         constexpr VFS::Path::NormalizedView menubookOptionsOverTexture("textures/tx_menubook_options_over.dds");
         const bool questList = mResourceSystem->getVFS()->exists(menubookOptionsOverTexture);
         auto journal = JournalWindow::create(JournalViewModel::create(), questList, mEncoding);
+        UI_CRUMB("Journal");
         mGuiModeStates[GM_Journal] = GuiModeState(journal.get());
         mWindows.push_back(std::move(journal));
 
@@ -382,6 +412,7 @@ namespace MWGui
         mWindows.push_back(std::move(travelWindow));
 
         auto dialogueWindow = std::make_unique<DialogueWindow>();
+        UI_CRUMB("DialogueWindow");
         mDialogueWindow = dialogueWindow.get();
         mWindows.push_back(std::move(dialogueWindow));
         trackWindow(mDialogueWindow, makeDialogueWindowSettingValues());
@@ -395,6 +426,7 @@ namespace MWGui
         mGuiModeStates[GM_Container] = GuiModeState({ mContainerWindow, mInventoryWindow });
 
         auto hud = std::make_unique<HUD>(mCustomMarkers, mDragAndDrop.get(), mLocalMapRender.get());
+        UI_CRUMB("HUD");
         mHud = hud.get();
         mWindows.push_back(std::move(hud));
 
@@ -409,33 +441,34 @@ namespace MWGui
         mBookWindow = bookWindow.get();
         mWindows.push_back(std::move(bookWindow));
         mGuiModeStates[GM_Book] = GuiModeState(mBookWindow);
+        UI_CRUMB("Book+Scroll");
 
         auto countDialog = std::make_unique<CountDialog>();
         mCountDialog = countDialog.get();
         mWindows.push_back(std::move(countDialog));
 
-        auto settingsWindow = std::make_unique<SettingsWindow>(mCfgMgr);
-        mSettingsWindow = settingsWindow.get();
-        mWindows.push_back(std::move(settingsWindow));
-        trackWindow(mSettingsWindow, makeSettingsWindowSettingValues());
+#ifndef __3DS__
+        // 3DS: the fat, rarely-open windows are created lazily on first use
+        // (ensureLazyWindow) — Settings alone costs ~3.1MB of a 124MB budget,
+        // Alchemy ~2.6MB, QuickKeys+Levelup ~2.4MB.
+        createSettingsWindow();
+#endif
+        UI_CRUMB("Settings");
 
         auto confirmationDialog = std::make_unique<ConfirmationDialog>();
         mConfirmationDialog = confirmationDialog.get();
         mWindows.push_back(std::move(confirmationDialog));
 
-        auto alchemyWindow = std::make_unique<AlchemyWindow>();
-        trackWindow(alchemyWindow.get(), makeAlchemyWindowSettingValues());
-        mGuiModeStates[GM_Alchemy] = GuiModeState(alchemyWindow.get());
-        mWindows.push_back(std::move(alchemyWindow));
+#ifndef __3DS__
+        createAlchemyWindow();
+#endif
+        UI_CRUMB("Alchemy");
 
-        auto quickKeysMenu = std::make_unique<QuickKeysMenu>();
-        mQuickKeysMenu = quickKeysMenu.get();
-        mWindows.push_back(std::move(quickKeysMenu));
-        mGuiModeStates[GM_QuickKeysMenu] = GuiModeState(mQuickKeysMenu);
-
-        auto levelupDialog = std::make_unique<LevelupDialog>();
-        mGuiModeStates[GM_Levelup] = GuiModeState(levelupDialog.get());
-        mWindows.push_back(std::move(levelupDialog));
+#ifndef __3DS__
+        createQuickKeysMenu();
+        createLevelupDialog();
+#endif
+        UI_CRUMB("QuickKeys+Levelup");
 
         auto waitDialog = std::make_unique<WaitDialog>();
         mWaitDialog = waitDialog.get();
@@ -449,6 +482,7 @@ namespace MWGui
         auto enchantingDialog = std::make_unique<EnchantingDialog>();
         mGuiModeStates[GM_Enchanting] = GuiModeState(enchantingDialog.get());
         mWindows.push_back(std::move(enchantingDialog));
+        UI_CRUMB("Wait+SpellCr+Ench");
 
         auto trainingWindow = std::make_unique<TrainingWindow>();
         mGuiModeStates[GM_Training] = GuiModeState({ trainingWindow->getProgressBar(), trainingWindow.get() });
@@ -474,6 +508,7 @@ namespace MWGui
         mJailScreen = jailScreen.get();
         mWindows.push_back(std::move(jailScreen));
         mGuiModeStates[GM_Jail] = GuiModeState(mJailScreen);
+        UI_CRUMB("Train..Jail");
 
         std::string werewolfFaderTex = "textures\\werewolfoverlay.dds";
         if (mResourceSystem->getVFS()->exists(werewolfFaderTex))
@@ -507,11 +542,14 @@ namespace MWGui
         mDebugWindow = debugWindow.get();
         mWindows.push_back(std::move(debugWindow));
         trackWindow(mDebugWindow, makeDebugWindowSettingValues());
+        UI_CRUMB("Faders+Debug");
 
+#if !defined(__vita__) && !defined(__3DS__)
         auto postProcessorHud = std::make_unique<PostProcessorHud>(mCfgMgr);
         mPostProcessorHud = postProcessorHud.get();
         mWindows.push_back(std::move(postProcessorHud));
         trackWindow(mPostProcessorHud, makePostprocessorWindowSettingValues());
+#endif
 
         auto controllerButtonsOverlay = std::make_unique<ControllerButtonsOverlay>();
         mControllerButtonsOverlay = controllerButtonsOverlay.get();
@@ -528,6 +566,7 @@ namespace MWGui
             {}, 0, 0, w, h, MyGUI::Align::Stretch, "InputBlocker");
 
         mHud->setVisible(true);
+        UI_CRUMB("Overlays");
 
         mCharGen = std::make_unique<CharacterCreation>(mViewer->getSceneData()->asGroup(), mResourceSystem);
 
@@ -546,7 +585,81 @@ namespace MWGui
             if (!id.empty())
                 mLuaIdToWindow.emplace(id, window.get());
         }
+        UI_CRUMB("CharGen+tail");
     }
+
+    void WindowManager::registerWindowForLua(WindowBase* window)
+    {
+        std::string_view id = window->getWindowIdForLua();
+        if (!id.empty())
+            mLuaIdToWindow.emplace(id, window);
+    }
+
+    void WindowManager::createSettingsWindow()
+    {
+        if (mSettingsWindow)
+            return;
+        auto settingsWindow = std::make_unique<SettingsWindow>(mCfgMgr);
+        mSettingsWindow = settingsWindow.get();
+        mWindows.push_back(std::move(settingsWindow));
+        trackWindow(mSettingsWindow, makeSettingsWindowSettingValues());
+        registerWindowForLua(mSettingsWindow);
+    }
+
+    void WindowManager::createAlchemyWindow()
+    {
+        if (mAlchemyWindow)
+            return;
+        auto alchemyWindow = std::make_unique<AlchemyWindow>();
+        mAlchemyWindow = alchemyWindow.get();
+        trackWindow(mAlchemyWindow, makeAlchemyWindowSettingValues());
+        mGuiModeStates[GM_Alchemy] = GuiModeState(mAlchemyWindow);
+        mWindows.push_back(std::move(alchemyWindow));
+        registerWindowForLua(mAlchemyWindow);
+    }
+
+    void WindowManager::createQuickKeysMenu()
+    {
+        if (mQuickKeysMenu)
+            return;
+        auto quickKeysMenu = std::make_unique<QuickKeysMenu>();
+        mQuickKeysMenu = quickKeysMenu.get();
+        mWindows.push_back(std::move(quickKeysMenu));
+        mGuiModeStates[GM_QuickKeysMenu] = GuiModeState(mQuickKeysMenu);
+        registerWindowForLua(mQuickKeysMenu);
+    }
+
+    void WindowManager::createLevelupDialog()
+    {
+        if (mLevelupDialog)
+            return;
+        auto levelupDialog = std::make_unique<LevelupDialog>();
+        mLevelupDialog = levelupDialog.get();
+        mGuiModeStates[GM_Levelup] = GuiModeState(mLevelupDialog);
+        mWindows.push_back(std::move(levelupDialog));
+        registerWindowForLua(mLevelupDialog);
+    }
+
+#ifdef __3DS__
+    void WindowManager::ensureLazyWindow(GuiMode mode)
+    {
+        // Deferred heavyweights (see initUI): built on the first mode push.
+        switch (mode)
+        {
+            case GM_Alchemy:
+                createAlchemyWindow();
+                break;
+            case GM_QuickKeysMenu:
+                createQuickKeysMenu();
+                break;
+            case GM_Levelup:
+                createLevelupDialog();
+                break;
+            default:
+                break;
+        }
+    }
+#endif
 
     void WindowManager::setNewGame(bool newgame)
     {
@@ -658,8 +771,6 @@ namespace MWGui
             setCursorVisible(mMessageBoxManager && mMessageBoxManager->isInteractiveMessageBox());
         else
             setCursorVisible(!gameMode);
-
-        updateMouseEmulationCursor();
 
         if (gameMode)
             setKeyFocusWidget(nullptr);
@@ -1002,7 +1113,21 @@ namespace MWGui
             = MWBase::Environment::get().getStateManager()->getState() != MWBase::StateManager::State_NoGame;
 
         if (gameRunning)
+        {
+#if defined(__vita__) || defined(__3DS__)
+            // Map widget refresh throttled to ~8 Hz on Vita. Per-frame
+            // updateMap costs 0.5-1.5 ms iterating maps + magic markers.
+            static float s_mapAccum = 0.f;
+            s_mapAccum += frameDuration;
+            if (s_mapAccum >= 0.125f)
+            {
+                s_mapAccum = 0.f;
+                updateMap();
+            }
+#else
             updateMap();
+#endif
+        }
 
         if (!mGuiModes.empty())
         {
@@ -1055,15 +1180,14 @@ namespace MWGui
             mConsole->onFrame(frameDuration);
 
         if (isSettingsWindowVisible())
-            mSettingsWindow->onFrame(frameDuration);
+            if (mSettingsWindow)
+                mSettingsWindow->onFrame(frameDuration);
 
         if (mControllerButtonsOverlay && mControllerButtonsOverlay->isVisible())
             mControllerButtonsOverlay->onFrame(frameDuration);
 
         if (mInventoryTabsOverlay && mInventoryTabsOverlay->isVisible())
             mInventoryTabsOverlay->onFrame(frameDuration);
-
-        updateMouseEmulationCursor();
 
         if (!gameRunning)
             return;
@@ -1105,7 +1229,8 @@ namespace MWGui
 
         mHud->onFrame(frameDuration);
 
-        mPostProcessorHud->onFrame(frameDuration);
+        if (mPostProcessorHud)
+            mPostProcessorHud->onFrame(frameDuration);
 
         if (mCharGen)
             mCharGen->onFrame(frameDuration);
@@ -1225,11 +1350,17 @@ namespace MWGui
     void WindowManager::setCursorVisible(bool visible)
     {
         mCursorVisible = visible;
+#if defined(__vita__) || defined(__3DS__)
+        MyGUI::PointerManager::getInstance().setVisible(mCursorVisible && mCursorActive);
+#endif
     }
 
     void WindowManager::setCursorActive(bool active)
     {
         mCursorActive = active;
+#if defined(__vita__) || defined(__3DS__)
+        MyGUI::PointerManager::getInstance().setVisible(mCursorVisible && mCursorActive);
+#endif
     }
 
     void WindowManager::onRetrieveTag(const MyGUI::UString& tag, MyGUI::UString& result)
@@ -1361,8 +1492,6 @@ namespace MWGui
         // Re-apply any controller-specific window changes.
         reapplyActiveControllerWindow();
 
-        MWBase::Environment::get().getLuaManager()->viewportResized(x, y);
-
         // TODO: check if any windows are now off-screen and move them back if so
     }
 
@@ -1383,7 +1512,9 @@ namespace MWGui
 
     void WindowManager::onCursorChange(std::string_view name)
     {
+#if !defined(__vita__) && !defined(__3DS__)
         mCursorManager->cursorChanged(name);
+#endif
     }
 
     void WindowManager::pushGuiMode(GuiMode mode)
@@ -1403,6 +1534,9 @@ namespace MWGui
 
     void WindowManager::pushGuiMode(GuiMode mode, const MWWorld::Ptr& arg, bool force)
     {
+#ifdef __3DS__
+        ensureLazyWindow(mode);
+#endif
         if (mode == GM_Inventory && mAllowed == GW_None)
             return;
 
@@ -1780,7 +1914,8 @@ namespace MWGui
 
     void WindowManager::notifyInputActionBound()
     {
-        mSettingsWindow->updateControlsBox();
+        if (mSettingsWindow)
+            mSettingsWindow->updateControlsBox();
         allowMouse();
     }
 
@@ -1800,11 +1935,15 @@ namespace MWGui
 
     void WindowManager::updateActivatedQuickKey()
     {
-        mQuickKeysMenu->updateActivatedQuickKey();
+        if (mQuickKeysMenu)
+            mQuickKeysMenu->updateActivatedQuickKey();
     }
 
     void WindowManager::activateQuickKey(int index)
     {
+        // Lazy on 3DS: a hotkey press with keys assigned in a loaded save
+        // must materialize the menu first.
+        createQuickKeysMenu();
         mQuickKeysMenu->activateQuickKey(index);
     }
 
@@ -1878,29 +2017,18 @@ namespace MWGui
 
     void WindowManager::onKeyFocusChanged(MyGUI::Widget* widget)
     {
-        bool capturesInput = false;
-        if (widget)
-        {
-            LuaUi::WidgetExtension* luaWidget = dynamic_cast<LuaUi::WidgetExtension*>(widget);
-            if (luaWidget)
-                capturesInput = luaWidget->isTextInput();
-            else
-                capturesInput = widget->castType<MyGUI::EditBox>(false);
-        }
-
-        // The SDL_IsTextInputActive() check helps to avoid duplicate calls in SDL2.
-        // This may no longer be required when switching to SDL3 where the function
-        // has also been renamed to SDL_TextInputActive() and returns bool instead
-        // of SDL_bool.
-
-        const bool inputActive = SDL_IsTextInputActive() == SDL_TRUE;
-        if (capturesInput == inputActive)
-            return;
-
-        if (capturesInput)
+#if !defined(__vita__) && !defined(__3DS__)
+        // On Vita, SDL_StartTextInput does nothing useful (no soft keyboard) but
+        // makes SDL_IsTextInputActive() return true, which blocks controller A
+        // button processing in gamepadToGuiControl(). Skip it entirely on Vita.
+        bool isEditBox = widget && widget->castType<MyGUI::EditBox>(false);
+        LuaUi::WidgetExtension* luaWidget = dynamic_cast<LuaUi::WidgetExtension*>(widget);
+        bool capturesInput = luaWidget ? luaWidget->isTextInput() : isEditBox;
+        if (widget && capturesInput)
             SDL_StartTextInput();
         else
             SDL_StopTextInput();
+#endif
     }
 
     void WindowManager::setEnemy(const MWWorld::Ptr& enemy)
@@ -1925,24 +2053,6 @@ namespace MWGui
     bool WindowManager::getCursorVisible()
     {
         return mCursorVisible && mCursorActive;
-    }
-
-    void WindowManager::updateMouseEmulationCursor()
-    {
-        if (!mHud)
-            return;
-
-        bool mouseEmulation = MWBase::Environment::get().getInputManager()->joystickLastUsed()
-            && MWBase::Environment::get().getInputManager()->isGamepadGuiCursorEnabled();
-
-        bool showCursor = mouseEmulation && Settings::hud().mMouseEmulationCursor && getCursorVisible();
-        mHud->setMouseEmulationCursorVisible(showCursor);
-
-        if (showCursor)
-        {
-            MyGUI::IntPoint pos = MyGUI::InputManager::getInstance().getMousePosition();
-            mHud->setMouseEmulationCursorPosition(pos.left, pos.top);
-        }
     }
 
     void WindowManager::trackWindow(Layout* layout, const WindowSettingValues& settings)
@@ -1985,11 +2095,16 @@ namespace MWGui
 
     void WindowManager::onWindowChangeCoord(MyGUI::Window* window)
     {
-        // If using controller menus, don't persist changes to size of the stats or magic
-        // windows.
+        // If using controller menus, don't persist runtime resizes of windows whose
+        // size+position is forced by Vita defaults (applySettingsOverrides). Without
+        // this, MinSize-bumps and centering logic write garbage back into
+        // Settings::windows().* and the values drift across sessions.
         if (Settings::gui().mControllerMenus
             && (window == mStatsWindow->mMainWidget->castType<MyGUI::Window>()
-                || window == mSpellWindow->mMainWidget->castType<MyGUI::Window>()))
+                || window == mSpellWindow->mMainWidget->castType<MyGUI::Window>()
+                || window == mMap->mMainWidget->castType<MyGUI::Window>()
+                || window == mDialogueWindow->mMainWidget->castType<MyGUI::Window>()
+                || (mSettingsWindow && window == mSettingsWindow->mMainWidget->castType<MyGUI::Window>())))
             return;
 
         const auto it = mTrackedWindows.find(window);
@@ -2042,7 +2157,10 @@ namespace MWGui
     {
         mMap->write(writer, progress);
 
-        mQuickKeysMenu->write(writer);
+        // Lazy on 3DS: null means no quick keys were ever assigned or loaded
+        // this session — nothing to persist.
+        if (mQuickKeysMenu)
+            mQuickKeysMenu->write(writer);
 
         if (!mSelectedSpell.empty())
         {
@@ -2064,7 +2182,10 @@ namespace MWGui
         if (type == ESM::REC_GMAP)
             mMap->readRecord(reader, type);
         else if (type == ESM::REC_KEYS)
+        {
+            createQuickKeysMenu(); // lazy on 3DS — a save carries assignments
             mQuickKeysMenu->readRecord(reader, type);
+        }
         else if (type == ESM::REC_ASPL)
         {
             reader.getSubNameIs("ID__");
@@ -2097,6 +2218,17 @@ namespace MWGui
 
     void WindowManager::playVideo(std::string_view name, bool allowSkipping, bool overrideSounds)
     {
+#ifdef __3DS__
+        // 64MB effectively disables playback for now: the intro left its
+        // frame textures in linear memory and starved the interior load
+        // (72KB free -> first-frame wedge). Lower back to ~15MB once the
+        // ETC1 texture preprocessor lands and linear pressure drops.
+        if (Vita::getFreeUserMemory() < 64u * 1024u * 1024u)
+        {
+            Log(Debug::Info) << "3DS: skipping video " << name << " (low memory)";
+            return;
+        }
+#endif
         mVideoWidget->playVideo("video\\" + std::string{ name });
 
         mVideoWidget->eventKeyButtonPressed.clear();
@@ -2116,9 +2248,6 @@ namespace MWGui
         setKeyFocusWidget(mVideoWidget);
 
         mVideoBackground->setVisible(true);
-
-        if (mInputBlocker)
-            mInputBlocker->setVisible(false);
 
         bool cursorWasVisible = mCursorVisible;
         setCursorVisible(false);
@@ -2146,8 +2275,6 @@ namespace MWGui
             {
                 if (mVideoWidget->isPaused())
                     mVideoWidget->resume();
-
-                mVideoWidget->commitFrame();
 
                 mViewer->eventTraversal();
                 mViewer->updateTraversal();
@@ -2380,7 +2507,8 @@ namespace MWGui
 
     void WindowManager::togglePostProcessorHud()
     {
-        if (!MWBase::Environment::get().getWorld()->getPostProcessor()->isEnabled())
+        auto* pp = MWBase::Environment::get().getWorld()->getPostProcessor();
+        if (!pp || !pp->isEnabled())
         {
             messageBox("#{OMWEngine:PostProcessingIsNotEnabled}");
             return;
@@ -2401,6 +2529,7 @@ namespace MWGui
 
     void WindowManager::toggleSettingsWindow()
     {
+        createSettingsWindow(); // lazy on 3DS
         bool visible = mSettingsWindow->isVisible();
 
         if (!visible && !mGuiModes.empty())
@@ -2693,10 +2822,13 @@ namespace MWGui
 
     int WindowManager::getControllerMenuHeight()
     {
+        // Reserve overlay space whether or not the overlays are currently flagged
+        // visible — they're flipped ON after each window has already sized itself,
+        // so isVisible() underreports during sizing.
         int height = MyGUI::RenderManager::getInstance().getViewSize().height;
-        if (mControllerButtonsOverlay != nullptr && mControllerButtonsOverlay->isVisible())
+        if (mControllerButtonsOverlay != nullptr && Settings::gui().mControllerMenus)
             height -= mControllerButtonsOverlay->getHeight();
-        if (mInventoryTabsOverlay != nullptr && mInventoryTabsOverlay->isVisible())
+        if (mInventoryTabsOverlay != nullptr && getMode() == GM_Inventory)
             height -= mInventoryTabsOverlay->getHeight();
         return height;
     }

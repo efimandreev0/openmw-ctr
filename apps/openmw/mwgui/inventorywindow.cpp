@@ -91,14 +91,24 @@ namespace MWGui
         , mGuiMode(GM_Inventory)
         , mLastXSize(0)
         , mLastYSize(0)
+
+#ifndef __3DS__
+        // 3DS: the paper-doll preview costs ~13MB (RTT images + a second
+        // copy of the player scene graph) — measured as the single biggest
+        // initUI consumer. Inventory works without it.
         , mPreview(std::make_unique<MWRender::InventoryPreview>(parent, resourceSystem, MWMechanics::getPlayer()))
+#endif
         , mTrading(false)
         , mUpdateNextFrame(false)
         , mPendingControllerAction(ControllerAction::None)
     {
-        mPreviewTexture
-            = std::make_unique<MyGUIPlatform::OSGTexture>(mPreview->getTexture(), mPreview->getTextureStateSet());
-        mPreview->rebuild();
+        // rebuild() before wrapping so the RTT attachments exist when MyGUI references the texture.
+        if (mPreview)
+        {
+            mPreview->rebuild();
+            mPreviewTexture
+                = std::make_unique<MyGUIPlatform::OSGTexture>(mPreview->getTexture(), mPreview->getTextureStateSet());
+        }
 
         mMainWidget->castType<MyGUI::Window>()->eventWindowChangeCoord
             += MyGUI::newDelegate(this, &InventoryWindow::onWindowResize);
@@ -117,9 +127,9 @@ namespace MWGui
         getWidget(mFilterEdit, "FilterEdit");
 
         mAvatarImage->eventMouseButtonClick += MyGUI::newDelegate(this, &InventoryWindow::onAvatarClicked);
-        mAvatarImage->setRenderItemTexture(mPreviewTexture.get());
-        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted
-        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+        if (mPreviewTexture)
+            mAvatarImage->setRenderItemTexture(mPreviewTexture.get());
+        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
 
         getWidget(mItemView, "ItemView");
         mItemView->eventItemClicked += MyGUI::newDelegate(this, &InventoryWindow::onItemSelected);
@@ -190,9 +200,12 @@ namespace MWGui
         mFilterMagic->setStateSelected(false);
         mFilterMisc->setStateSelected(false);
 
-        mPreview->updatePtr(mPtr);
-        mPreview->rebuild();
-        mPreview->update();
+        if (mPreview)
+        {
+            mPreview->updatePtr(mPtr);
+            mPreview->rebuild();
+            mPreview->update();
+        }
 
         dirtyPreview();
 
@@ -553,12 +566,13 @@ namespace MWGui
 
     void InventoryWindow::updatePreviewSize()
     {
+        if (!mPreview)
+            return;
         const MyGUI::IntSize viewport = getPreviewViewportSize();
         mPreview->setViewport(viewport.width, viewport.height);
-        const float top = viewport.height / static_cast<float>(mPreview->getTextureHeight());
-        const float right = viewport.width / static_cast<float>(mPreview->getTextureWidth());
-        // The widget is Y-down, the RTT image is Y-up, so this UV is inverted
-        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, top, right, 0.f));
+        mAvatarImage->getSubWidgetMain()->_setUVSet(
+            MyGUI::FloatRect(0.f, 0.f, viewport.width / float(mPreview->getTextureWidth()),
+                viewport.height / float(mPreview->getTextureHeight())));
     }
 
     void InventoryWindow::onNameFilterChanged(MyGUI::EditBox* sender)
@@ -731,7 +745,7 @@ namespace MWGui
     MWWorld::Ptr InventoryWindow::getAvatarSelectedItem(int x, int y)
     {
         const osg::Vec2i viewportCoords = mapPreviewWindowToViewport(x, y);
-        int slot = mPreview->getSlotSelected(viewportCoords.x(), viewportCoords.y());
+        const int slot = mPreview ? mPreview->getSlotSelected(viewportCoords.x(), viewportCoords.y()) : -1;
 
         if (slot == -1)
             return MWWorld::Ptr();
@@ -786,8 +800,8 @@ namespace MWGui
 
     void InventoryWindow::dirtyPreview()
     {
-        mPreview->update();
-
+        if (mPreview)
+            mPreview->update();
         updateArmorRating();
     }
 
@@ -933,7 +947,8 @@ namespace MWGui
 
     void InventoryWindow::rebuildAvatar()
     {
-        mPreview->rebuild();
+        if (mPreview)
+            mPreview->rebuild();
     }
 
     void InventoryWindow::onInventoryUpdate(const MWWorld::Ptr& ptr)
@@ -947,6 +962,9 @@ namespace MWGui
         const MyGUI::IntSize previewWindowSize = mAvatarImage->getSize();
         const float scale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
 
+        if (!mPreview)
+            return MyGUI::IntSize(
+                static_cast<int>(previewWindowSize.width * scale), static_cast<int>(previewWindowSize.height * scale));
         return MyGUI::IntSize(std::min(mPreview->getTextureWidth(), static_cast<int>(previewWindowSize.width * scale)),
             std::min(mPreview->getTextureHeight(), static_cast<int>(previewWindowSize.height * scale)));
     }

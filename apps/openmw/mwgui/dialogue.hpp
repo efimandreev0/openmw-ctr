@@ -111,19 +111,23 @@ namespace MWGui
         void activated() override;
     };
 
+    using TopicSearch = MWDialogue::KeywordSearch<const Topic*>;
+
     struct DialogueText
     {
         virtual ~DialogueText() = default;
-        virtual void write(std::shared_ptr<BookTypesetter> typesetter, const MWDialogue::KeywordSearch& keywordSearch,
-            std::unordered_map<std::string, std::unique_ptr<Link>>& topicLinks) const = 0;
+        virtual void write(std::shared_ptr<BookTypesetter> typesetter, const TopicSearch& keywordSearch,
+            std::map<std::string, std::unique_ptr<Link>>& topicLinks) const = 0;
         std::string mText;
     };
 
     struct Response : DialogueText
     {
         Response(std::string_view text, std::string_view title = {}, bool needMargin = true);
-        void write(std::shared_ptr<BookTypesetter> typesetter, const MWDialogue::KeywordSearch& keywordSearch,
-            std::unordered_map<std::string, std::unique_ptr<Link>>& topicLinks) const override;
+        void write(std::shared_ptr<BookTypesetter> typesetter, const TopicSearch& keywordSearch,
+            std::map<std::string, std::unique_ptr<Link>>& topicLinks) const override;
+        void addTopicLink(
+            std::shared_ptr<BookTypesetter> typesetter, const Topic* topic, size_t begin, size_t end) const;
         std::string mTitle;
         bool mNeedMargin;
     };
@@ -131,8 +135,8 @@ namespace MWGui
     struct Message : DialogueText
     {
         Message(std::string_view text);
-        void write(std::shared_ptr<BookTypesetter> typesetter, const MWDialogue::KeywordSearch& keywordSearch,
-            std::unordered_map<std::string, std::unique_ptr<Link>>& topicLinks) const override;
+        void write(std::shared_ptr<BookTypesetter> typesetter, const TopicSearch& keywordSearch,
+            std::map<std::string, std::unique_ptr<Link>>& topicLinks) const override;
     };
 
     class DialogueWindow : public WindowBase, public ReferenceInterface
@@ -200,11 +204,11 @@ namespace MWGui
         bool mGoodbye;
 
         std::vector<std::unique_ptr<Link>> mLinks;
-        std::unordered_map<std::string, std::unique_ptr<Link>> mTopicLinks;
+        std::map<std::string, std::unique_ptr<Link>> mTopicLinks;
 
         std::vector<std::unique_ptr<Link>> mDeleteLater;
 
-        MWDialogue::KeywordSearch mKeywordSearch;
+        TopicSearch mKeywordSearch;
 
         BookPage* mHistory;
         Gui::MWList* mTopicsList;

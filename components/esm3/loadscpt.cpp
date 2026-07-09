@@ -130,7 +130,15 @@ namespace ESM
                 case fourCC("SCVR"):
                     if (!header.has_value())
                         esm.fail("SCVR is placed before SCHD record");
+#if defined(__vita__) || defined(__3DS__)
+                    // mVarNames is the Bethesda compiler's variable-name table.
+                    // The runtime engine parses var names from mScriptText during
+                    // recompilation — only esmtool/tests read mVarNames. Skip the
+                    // SCVR subrecord on Vita to save a few MB across thousands of scripts.
+                    esm.skipHSub();
+#else
                     loadVarNames(*header, mVarNames, esm);
+#endif
                     break;
                 case fourCC("SCDT"):
                 {
@@ -150,8 +158,17 @@ namespace ESM
                         Log(Debug::Verbose) << ss.str();
                     }
 
+#if defined(__vita__) || defined(__3DS__)
+                    // mScriptData is the original Bethesda-compiled bytecode. The runtime
+                    // engine never executes it — OpenMW always recompiles from mScriptText
+                    // (see scriptmanagerimp.cpp). Only esmtool/tests read mScriptData.
+                    // Skip on Vita to save ~10-30 MB across a typical mod load
+                    // (thousands of scripts × hundreds-to-thousands of bytes each).
+                    esm.skip(subSize);
+#else
                     mScriptData.resize(subSize);
                     esm.getExact(mScriptData.data(), mScriptData.size());
+#endif
                     break;
                 }
                 case fourCC("SCTX"):

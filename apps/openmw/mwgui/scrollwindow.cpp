@@ -55,15 +55,15 @@ namespace MWGui
         MWWorld::Ptr player = MWMechanics::getPlayer();
         bool showTakeButton = scroll.getContainerStore() != &player.getClass().getContainerStore(player);
 
-        const std::string* text;
+        std::string text;
         if (scroll.getType() == ESM::REC_BOOK)
-            text = &scroll.get<ESM::Book>()->mBase->mText;
+            text = scroll.get<ESM::Book>()->mBase->getText(); // may come from the SD pool
         else
-            text = &scroll.get<ESM4::Book>()->mBase->mText;
+            text = scroll.get<ESM4::Book>()->mBase->mText;
         bool shrinkTextAtLastTag = scroll.getType() == ESM::REC_BOOK;
 
         Formatting::BookFormatter formatter;
-        formatter.markupToWidget(mTextView, *text, 390, mTextView->getHeight(), shrinkTextAtLastTag);
+        formatter.markupToWidget(mTextView, text, 390, mTextView->getHeight(), shrinkTextAtLastTag);
         MyGUI::IntSize size = mTextView->getChildAt(0)->getSize();
 
         // Canvas size must be expressed with VScroll disabled, otherwise MyGUI would expand the scroll area when the

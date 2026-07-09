@@ -69,6 +69,13 @@ namespace MWMechanics
         }
         bool isInvalid() const { return mInvalid; }
 
+#if defined(__vita__) || defined(__3DS__)
+        // Dt carried across LOD-skipped frames, consumed on the next non-skip frame.
+        float getAccumulatedDt() const { return mAccumulatedDt; }
+        void addAccumulatedDt(float dt) { mAccumulatedDt += dt; }
+        void clearAccumulatedDt() { mAccumulatedDt = 0.f; }
+#endif
+
     private:
         CharacterController mCharacterController;
         int mGreetingTimer{ 0 };
@@ -79,6 +86,9 @@ namespace MWMechanics
         bool mIsTurningToPlayer{ false };
         bool mInvalid{ false };
         bool mPositionAdjusted;
+#if defined(__vita__) || defined(__3DS__)
+        float mAccumulatedDt{ 0.f };
+#endif
     };
 
 }

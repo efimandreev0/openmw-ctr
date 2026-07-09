@@ -3,6 +3,10 @@
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
+#ifdef __3DS__
+#include "ctrinfoblob.hpp"
+#endif
+
 #include <stdexcept>
 
 namespace ESM
@@ -105,6 +109,9 @@ namespace ESM
     {
         mType = Unknown;
         mInfo.clear();
+#ifdef __3DS__
+        mCtrInfoSection = CtrInfoBlob::sNoSection;
+#endif
     }
 
     void Dialogue::readInfo(ESMReader& esm)
@@ -119,5 +126,23 @@ namespace ESM
     {
         mInfoOrder.removeDeleted();
         mInfoOrder.extractOrderedInfo(mInfo);
+    }
+
+    Dialogue::InfosHandle Dialogue::readInfos() const
+    {
+        InfosHandle handle;
+#ifdef __3DS__
+        if (mCtrInfoSection != CtrInfoBlob::sNoSection)
+        {
+            handle.mHold = CtrInfoBlob::instance().fetch(mCtrInfoSection);
+            if (handle.mHold)
+            {
+                handle.mList = handle.mHold.get();
+                return handle;
+            }
+        }
+#endif
+        handle.mList = &mInfo;
+        return handle;
     }
 }

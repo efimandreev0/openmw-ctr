@@ -137,7 +137,7 @@ osg::Group {
       UserDataContainer TRUE {
         osg::DefaultUserDataContainer {
           UniqueID 5
-          UDC_UserObjects 2 {
+          UDC_UserObjects 3 {
             osg::UIntValueObject {
               UniqueID 6
               Name "recordIndex"
@@ -149,12 +149,17 @@ osg::Group {
               Value ")"
             << shaderPrefix << R"("
             }
+            osg::BoolValueObject {
+              UniqueID 8
+              Name "shaderRequired"
+              Value TRUE
+            }
           }
         }
       }
       StateSet TRUE {
         osg::StateSet {
-          UniqueID 8
+          UniqueID 9
         }
       }
     }
@@ -189,7 +194,7 @@ osg::Group {
       UserDataContainer TRUE {
         osg::DefaultUserDataContainer {
           UniqueID 5
-          UDC_UserObjects 2 {
+          UDC_UserObjects 3 {
             osg::UIntValueObject {
               UniqueID 6
               Name "recordIndex"
@@ -201,18 +206,23 @@ osg::Group {
               Value ")"
             << shaderPrefix << R"("
             }
+            osg::BoolValueObject {
+              UniqueID 8
+              Name "shaderRequired"
+              Value TRUE
+            }
           }
         }
       }
       StateSet TRUE {
         osg::StateSet {
-          UniqueID 8
+          UniqueID 9
           ModeList 1 {
             GL_DEPTH_TEST ON
           }
           AttributeList 1 {
             osg::Depth {
-              UniqueID 9
+              UniqueID 10
               Function LEQUAL
             }
             Value OFF

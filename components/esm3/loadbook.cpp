@@ -1,5 +1,7 @@
 #include "loadbook.hpp"
 
+#include "ctrstrpool.hpp"
+
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
@@ -49,8 +51,12 @@ namespace ESM
                     mEnchant = esm.getRefId();
                     break;
                 case fourCC("TEXT"):
-                    mText = esm.getHString();
+                {
+                    std::string s = esm.getHString();
+                    if (!CtrStrPool::instance().put(s, mTextOfs, mTextLen))
+                        mText = std::move(s);
                     break;
+                }
                 case SREC_DELE:
                     esm.skipHSub();
                     isDeleted = true;
@@ -76,13 +82,20 @@ namespace ESM
             return;
         }
 
-        esm.writeHNCString("MODL", mModel.getOriginal());
+        esm.writeHNCString("MODL", mModel);
         esm.writeHNOCString("FNAM", mName);
         esm.writeNamedComposite("BKDT", mData);
         esm.writeHNOCRefId("SCRI", mScript);
-        esm.writeHNOCString("ITEX", mIcon.getOriginal());
+        esm.writeHNOCString("ITEX", mIcon);
         esm.writeHNOString("TEXT", mText);
         esm.writeHNOCRefId("ENAM", mEnchant);
+    }
+
+    std::string Book::getText() const
+    {
+        if (mTextLen != 0)
+            return CtrStrPool::instance().get(mTextOfs, mTextLen);
+        return mText;
     }
 
     void Book::blank()
@@ -91,7 +104,7 @@ namespace ESM
         mData.mWeight = 0;
         mData.mValue = 0;
         mData.mIsScroll = 0;
-        mData.mSkillId = -1;
+        mData.mSkillId = 0;
         mData.mEnchant = 0;
         mName.clear();
         mModel.clear();
@@ -99,5 +112,6 @@ namespace ESM
         mScript = ESM::RefId();
         mEnchant = ESM::RefId();
         mText.clear();
+        mTextOfs = mTextLen = 0;
     }
 }

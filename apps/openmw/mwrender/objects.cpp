@@ -17,8 +17,26 @@
 #include "npcanimation.hpp"
 #include "vismask.hpp"
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaInit.h"
+#endif
+
 namespace MWRender
 {
+#if defined(__vita__) || defined(__3DS__)
+    // NPC movement inside a cell calls setPosition() on each PAT, which dirties
+    // the parent cell-group's bound and forces an O(N children) recompute the
+    // next time any system reads it (cull, light intersection). Returning a
+    // huge fixed sphere short-circuits this — the actual children still cull
+    // individually.
+    struct VitaCellBoundCallback : public osg::Node::ComputeBoundingSphereCallback
+    {
+        osg::BoundingSphere computeBound(const osg::Node&) const override
+        {
+            return osg::BoundingSphere(osg::Vec3(0, 0, 0), 1.0e6f);
+        }
+    };
+#endif
 
     Objects::Objects(Resource::ResourceSystem* resourceSystem, const osg::ref_ptr<osg::Group>& rootNode,
         SceneUtil::UnrefQueue& unrefQueue)
@@ -48,6 +66,9 @@ namespace MWRender
         {
             cellnode = new osg::Group;
             cellnode->setName("Cell Root");
+#if defined(__vita__) || defined(__3DS__)
+            cellnode->setComputeBoundingSphereCallback(new VitaCellBoundCallback);
+#endif
             mRootNode->addChild(cellnode);
             mCellSceneNodes[ptr.getCell()] = cellnode;
         }
@@ -88,7 +109,23 @@ namespace MWRender
         osg::ref_ptr<ObjectAnimation> anim(
             new ObjectAnimation(ptr, animationMesh, mResourceSystem, animated, allowLight));
 
-        mObjects.emplace(ptr.mRef, std::move(anim));
+        auto result = mObjects.emplace(ptr.mRef, std::move(anim));
+#if defined(__vita__) || defined(__3DS__)
+        {
+            std::string id = ptr.getCellRef().getRefId().toDebugString();
+            if (id.find("chargen") != std::string::npos || id.find("statssheet") != std::string::npos)
+            {
+                auto* base = ptr.getRefData().getBaseNode();
+                unsigned int numParents = base ? base->getNumParents() : 0;
+                const char* parentName = (base && numParents > 0) ? base->getParent(0)->getName().c_str() : "none";
+                unsigned int cellChildren = (base && numParents > 0) ? base->getParent(0)->getNumChildren() : 0;
+                char buf[256];
+                snprintf(buf, sizeof(buf), "Objects::insertModel(%s) emplaced=%d base=%p par='%s' cellCh=%u mRef=%p",
+                    id.c_str(), result.second, (void*)base, parentName, cellChildren, (void*)ptr.mRef);
+                Vita::breadcrumb(buf);
+            }
+        }
+#endif
     }
 
     void Objects::insertCreature(const MWWorld::Ptr& ptr, const std::string& mesh, bool weaponsShields)
@@ -144,6 +181,22 @@ namespace MWRender
             return true;
 
         const auto iter = mObjects.find(ptr.mRef);
+#if defined(__vita__) || defined(__3DS__)
+        {
+            std::string id = ptr.getCellRef().getRefId().toDebugString();
+            if (id.find("chargen") != std::string::npos || id.find("statssheet") != std::string::npos)
+            {
+                bool found = (iter != mObjects.end());
+                auto* base = ptr.getRefData().getBaseNode();
+                unsigned int numParents = base ? base->getNumParents() : 0;
+                const char* parentName = (base && numParents > 0) ? base->getParent(0)->getName().c_str() : "none";
+                char buf[256];
+                snprintf(buf, sizeof(buf), "Objects::removeObject(%s) found=%d base=%p par=%u parentName='%s' mRef=%p",
+                    id.c_str(), found, (void*)base, numParents, parentName, (void*)ptr.mRef);
+                Vita::breadcrumb(buf);
+            }
+        }
+#endif
         if (iter != mObjects.end())
         {
             iter->second->removeFromScene();
@@ -164,6 +217,14 @@ namespace MWRender
             return true;
         }
         return false;
+    }
+
+    osg::Group* Objects::getCellRoot(const MWWorld::CellStore* store)
+    {
+        CellMap::iterator it = mCellSceneNodes.find(store);
+        if (it != mCellSceneNodes.end())
+            return it->second.get();
+        return nullptr;
     }
 
     void Objects::removeCell(const MWWorld::CellStore* store)

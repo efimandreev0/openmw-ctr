@@ -35,7 +35,7 @@ namespace
         ++total;
         try
         {
-            std::istringstream input(info.mResultScript + "\n");
+            std::istringstream input(info.getResultScript() + "\n");
 
             Compiler::Scanner scanner(errorHandler, input, extensions);
 
@@ -101,9 +101,10 @@ namespace MWDialogue
             for (const ESM::Dialogue& topic : store.get<ESM::Dialogue>())
             {
                 MWWorld::Ptr ptr;
-                for (const ESM::DialInfo& info : topic.mInfo)
+                const auto infos = topic.readInfos();
+                for (const ESM::DialInfo& info : infos)
                 {
-                    if (info.mResultScript.empty())
+                    if (!info.hasResultScript())
                         continue;
                     if (!info.mActor.empty())
                     {
@@ -158,7 +159,7 @@ namespace MWDialogue
                         errorHandler.setContext(info.mId.getRefIdString() + " in " + topic.mStringId);
                         if (!test(ptr, info, compiled, total, extensions, compilerContext, errorHandler))
                             Log(Debug::Error) << "Test failed for " << info.mId << " in " << topic.mId << '\n'
-                                              << info.mResultScript;
+                                              << info.getResultScript();
                     }
                 }
             }

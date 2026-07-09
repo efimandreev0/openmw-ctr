@@ -7,6 +7,10 @@
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_UString.h>
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaIme.h"
+#endif
+
 #include <components/misc/strings/format.hpp>
 #include <components/settings/values.hpp>
 #include <components/widgets/list.hpp>
@@ -59,6 +63,9 @@ namespace MWGui
         mBuyButton->eventMouseButtonClick += MyGUI::newDelegate(this, &EnchantingDialog::onBuyButtonClicked);
         mTypeButton->eventMouseButtonClick += MyGUI::newDelegate(this, &EnchantingDialog::onTypeButtonClicked);
         mName->eventEditSelectAccept += MyGUI::newDelegate(this, &EnchantingDialog::onAccept);
+#if defined(__vita__) || defined(__3DS__)
+        mName->eventMouseButtonClick += MyGUI::newDelegate(this, &EnchantingDialog::onNameClicked);
+#endif
 
         mControllerButtons.mA = "#{Interface:Select}";
         mControllerButtons.mB = "#{Interface:Cancel}";
@@ -71,7 +78,20 @@ namespace MWGui
     {
         center();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mName);
+#if defined(__vita__) || defined(__3DS__)
+        // Auto-pop IME so controller-only users (the name field isn't in
+        // the controller focus rotation) can name the enchantment. Touch
+        // users can also re-tap to reopen via the click handler (ctor).
+        Vita::fillEditBoxFromIme(mName, "Enchantment Name", 31);
+#endif
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    void EnchantingDialog::onNameClicked(MyGUI::Widget* /*sender*/)
+    {
+        Vita::fillEditBoxFromIme(mName, "Enchantment Name", 31);
+    }
+#endif
 
     void EnchantingDialog::setSoulGem(const MWWorld::Ptr& gem)
     {

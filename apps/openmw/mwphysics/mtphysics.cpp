@@ -8,6 +8,14 @@
 #include <stdexcept>
 #include <variant>
 
+#if defined(__vita__) || defined(__3DS__)
+#include <atomic>
+#include <pthread.h>
+#endif
+#ifdef __vita__
+#include <psp2/kernel/threadmgr.h>
+#endif
+
 #include <BulletCollision/BroadphaseCollision/btDbvtBroadphase.h>
 #include <BulletCollision/CollisionShapes/btCollisionShape.h>
 #include <LinearMath/btThreads.h>
@@ -348,16 +356,48 @@ namespace MWPhysics
     public:
         void waitForWorkers()
         {
+#if defined(__vita__) || defined(__3DS__)
+            // Vita: atomic poll avoids PTE condition_variable crash.
+            while (mFrameCounter.load(std::memory_order_acquire)
+                   != mWorkersFrameCounter.load(std::memory_order_acquire))
+#ifdef __vita__
+                sceKernelDelayThread(50);
+#else
+                usleep(50);
+#endif
+#else
             std::unique_lock lock(mWorkersDoneMutex);
             if (mFrameCounter != mWorkersFrameCounter)
                 mWorkersDone.wait(lock);
+#endif
         }
 
         void wakeUpWorkers()
         {
+#if defined(__vita__) || defined(__3DS__)
+            // The worker parks on mHasJob.wait(lock) holding mHasJobMutex
+            // (runWorker), so the predicate variable (mFrameCounter) MUST be
+            // mutated under that same mutex — otherwise a notify issued in the
+            // window after the worker evaluated the predicate as false but
+            // before it parked is lost (classic condition_variable lost-wakeup).
+            // The old code bumped the counter lock-free, so the physics worker
+            // stayed parked, its results never synced, and getSimulationPosition
+            // returned a stale position every frame — the player never moved
+            // even though the movement request reached mMovement. Bump UNDER the
+            // lock, exactly like the desktop path. (This does NOT reintroduce the
+            // Vita PTE crash — that concerned the mWorkersDone CV in
+            // waitForWorkers, which stays an atomic poll; mHasJob is used on all
+            // platforms already.)
+            {
+                const std::lock_guard lock(mHasJobMutex);
+                mFrameCounter.fetch_add(1, std::memory_order_release);
+            }
+            mHasJob.notify_all();
+#else
             const std::lock_guard lock(mHasJobMutex);
             ++mFrameCounter;
             mHasJob.notify_all();
+#endif
         }
 
         void stopWorkers()
@@ -369,9 +409,13 @@ namespace MWPhysics
 
         void workIsDone()
         {
+#if defined(__vita__) || defined(__3DS__)
+            mWorkersFrameCounter.fetch_add(1, std::memory_order_release);
+#else
             const std::lock_guard lock(mWorkersDoneMutex);
             ++mWorkersFrameCounter;
             mWorkersDone.notify_all();
+#endif
         }
 
         template <class F>
@@ -381,21 +425,46 @@ namespace MWPhysics
             std::unique_lock lock(mHasJobMutex);
             while (!mShouldStop)
             {
+#if defined(__vita__) || defined(__3DS__)
+                mHasJob.wait(lock, [&] {
+                    return mShouldStop
+                        || mFrameCounter.load(std::memory_order_acquire) != lastFrame;
+                });
+                lastFrame = mFrameCounter.load(std::memory_order_acquire);
+#else
                 mHasJob.wait(lock, [&] { return mShouldStop || mFrameCounter != lastFrame; });
                 lastFrame = mFrameCounter;
+#endif
                 lock.unlock();
+#if defined(__vita__) || defined(__3DS__)
+                try { f(); }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Error) << "Physics worker exception: " << e.what();
+                }
+                catch (...) { Log(Debug::Error) << "Physics worker: unknown exception"; }
+#else
                 f();
+#endif
                 lock.lock();
             }
         }
 
     private:
+#if defined(__vita__) || defined(__3DS__)
+        std::atomic<std::size_t> mWorkersFrameCounter{0};
+#else
         std::size_t mWorkersFrameCounter = 0;
+#endif
         std::condition_variable mWorkersDone;
         std::mutex mWorkersDoneMutex;
         std::condition_variable mHasJob;
         bool mShouldStop = false;
+#if defined(__vita__) || defined(__3DS__)
+        std::atomic<std::size_t> mFrameCounter{0};
+#else
         std::size_t mFrameCounter = 0;
+#endif
         std::mutex mHasJobMutex;
     };
 
@@ -429,8 +498,27 @@ namespace MWPhysics
         if (mNumThreads >= 1)
         {
             Log(Debug::Info) << "Using " << mNumThreads << " async physics threads";
+#if defined(__vita__) || defined(__3DS__)
+            // Bullet's GJK/EPA solver uses ~30KB+ stack per call frame.
+            // Default pthread stack on Vita overflows. Use 512KB.
+            for (unsigned i = 0; i < mNumThreads; ++i)
+            {
+                pthread_t tid;
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 512 * 1024);
+                auto* self = this;
+                pthread_create(&tid, &attr, [](void* arg) -> void* {
+                    static_cast<PhysicsTaskScheduler*>(arg)->worker();
+                    return nullptr;
+                }, self);
+                pthread_attr_destroy(&attr);
+                mThreads.push_back(tid);
+            }
+#else
             for (unsigned i = 0; i < mNumThreads; ++i)
                 mThreads.emplace_back([&] { worker(); });
+#endif
         }
         else
         {
@@ -454,8 +542,13 @@ namespace MWPhysics
         }
         if (mWorkersSync != nullptr)
             mWorkersSync->stopWorkers();
+#if defined(__vita__) || defined(__3DS__)
+        for (auto& tid : mThreads)
+            pthread_join(tid, nullptr);
+#else
         for (auto& thread : mThreads)
             thread.join();
+#endif
     }
 
     std::tuple<unsigned, float> PhysicsTaskScheduler::calculateStepConfig(float timeAccum) const
@@ -611,6 +704,19 @@ namespace MWPhysics
     {
         MaybeSharedLock lock(mCollisionWorldMutex, mLockingPolicy);
         ContactTestWrapper::contactTest(mCollisionWorld, colObj, resultCallback);
+    }
+
+    bool PhysicsTaskScheduler::canMoveToWaterSurface(const Actor* actor, float waterlevel)
+    {
+        // Actor::canMoveToWaterSurface does a convex sweep through the
+        // collision world. Take the shared lock so we don't race with
+        // worker iteration (Move visitor) or with exclusive writers
+        // (removeCollisionObject during cell unload). Previously this
+        // path was reached unlocked via PhysicsSystem and produced a
+        // SceGxm-class data abort inside Bullet's rayTestSingleInternal
+        // when an arrow happened to be in flight during a cell change.
+        MaybeLock lock(mCollisionWorldMutex, mLockingPolicy);
+        return actor->canMoveToWaterSurface(waterlevel, mCollisionWorld);
     }
 
     std::optional<btVector3> PhysicsTaskScheduler::getHitPoint(const btTransform& from, btCollisionObject* target)

@@ -26,6 +26,7 @@
 
 #include "../mwbase/environment.hpp"
 #include "../mwbase/mechanicsmanager.hpp"
+#include "../mwbase/soundmanager.hpp"
 #include "../mwbase/world.hpp"
 
 #include "interpretercontext.hpp"
@@ -487,8 +488,9 @@ namespace MWScript
                     else if (testedTargetId == "Player") // Currently the player ID is hardcoded
                     {
                         MWBase::MechanicsManager* mechMgr = MWBase::Environment::get().getMechanicsManager();
-                        if (mechMgr->getGreetingState(actor) == MWMechanics::GreetingState::InProgress)
-                            targetsAreEqual = true;
+                        bool greeting = mechMgr->getGreetingState(actor) == MWMechanics::GreetingState::InProgress;
+                        bool sayActive = MWBase::Environment::get().getSoundManager()->sayActive(actor);
+                        targetsAreEqual = (greeting && sayActive) || mechMgr->isTurningToPlayer(actor);
                     }
                 }
                 runtime.push(targetsAreEqual);

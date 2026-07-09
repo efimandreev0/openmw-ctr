@@ -1,15 +1,15 @@
 #include "animation.hpp"
 
 #include <algorithm>
+#include <iomanip>
 #include <limits>
 
 #include <osg/BlendFunc>
+#include <osg/LightModel>
 #include <osg/Material>
-#include <osg/Matrix>
 #include <osg/MatrixTransform>
 #include <osg/Switch>
 
-#include <osg/Vec4f>
 #include <osgParticle/ParticleProcessor>
 #include <osgParticle/ParticleSystem>
 
@@ -67,6 +67,21 @@
 
 namespace
 {
+    class MarkDrawablesVisitor : public osg::NodeVisitor
+    {
+    public:
+        MarkDrawablesVisitor(osg::Node::NodeMask mask)
+            : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+            , mMask(mask)
+        {
+        }
+
+        void apply(osg::Drawable& drawable) override { drawable.setNodeMask(mMask); }
+
+    private:
+        osg::Node::NodeMask mMask = 0;
+    };
+
     /// Removes all particle systems and related nodes in a subgraph.
     class RemoveParticlesVisitor : public osg::NodeVisitor
     {
@@ -431,6 +446,13 @@ namespace
 
 namespace MWRender
 {
+    std::map<std::string, osg::ref_ptr<osg::Node>> sAnimationModelCache;
+
+    void clearAnimationModelCache()
+    {
+        sAnimationModelCache.clear();
+    }
+
     class TransparencyUpdater : public SceneUtil::StateSetUpdater
     {
     public:
@@ -645,9 +667,9 @@ namespace MWRender
         path.replace(extensionStart, path.size() - extensionStart, "/");
 
         constexpr VFS::Path::ExtensionView kf("kf");
-        for (const VFS::Path::Normalized& name : mResourceSystem->getVFS()->getRecursiveDirectoryIterator(path))
+        for (const auto& name : mResourceSystem->getVFS()->getRecursiveDirectoryIterator(path))
             if (name.extension() == kf)
-                addSingleAnimSource(name, baseModel);
+                addSingleAnimSource(std::string(VFS::Path::NormalizedView(name).value()), baseModel);
     }
 
     void Animation::addAnimSource(std::string_view model, const std::string& baseModel)
@@ -667,19 +689,17 @@ namespace MWRender
     }
 
     std::shared_ptr<Animation::AnimSource> Animation::addSingleAnimSource(
-        VFS::Path::NormalizedView kfname, const std::string& baseModel)
+        const std::string& kfname, const std::string& baseModel)
     {
         if (!mResourceSystem->getVFS()->exists(kfname))
             return nullptr;
 
-        osg::ref_ptr<const SceneUtil::KeyframeHolder> keyframes = mResourceSystem->getKeyframeManager()->get(kfname);
+        auto animsrc = std::make_shared<AnimSource>();
+        animsrc->mKeyframes = mResourceSystem->getKeyframeManager()->get(VFS::Path::toNormalized(kfname));
 
-        if (keyframes == nullptr || keyframes->mTextKeys.empty() || keyframes->mKeyframeControllers.empty())
+        if (!animsrc->mKeyframes || animsrc->mKeyframes->mTextKeys.empty()
+            || animsrc->mKeyframes->mKeyframeControllers.empty())
             return nullptr;
-
-        std::shared_ptr<AnimSource> animsrc = std::make_shared<AnimSource>();
-
-        animsrc->mKeyframes = std::move(keyframes);
 
         const NodeMap& nodeMap = getNodeMap();
         const auto& controllerMap = animsrc->mKeyframes->mKeyframeControllers;
@@ -724,7 +744,7 @@ namespace MWRender
             NodeMap::const_iterator found = nodeMap.end();
             for (const std::string_view& name : accumRootNames)
             {
-                found = nodeMap.find(name);
+                found = nodeMap.find(std::string(name));
                 if (found == nodeMap.end())
                     continue;
                 for (SceneUtil::KeyframeHolder::KeyframeControllerMap::const_iterator it = controllerMap.begin();
@@ -908,10 +928,7 @@ namespace MWRender
         while (stateiter != mStates.end())
         {
             if (stateiter->second.mPriority == priority && stateiter->first != groupname)
-            {
-                animationEnded(stateiter->second);
-                stateiter = mStates.erase(stateiter);
-            }
+                mStates.erase(stateiter++);
             else
                 ++stateiter;
         }
@@ -939,7 +956,6 @@ namespace MWRender
                 state.mAutoDisable = autodisable;
                 state.mGroupname = groupname;
                 state.mStartKey = start;
-                state.mStopKey = stop;
                 mStates[std::string{ groupname }] = state;
 
                 if (state.mPlaying)
@@ -1080,7 +1096,7 @@ namespace MWRender
         const AnimState& active)
     {
         osg::ref_ptr<ControllerType> animController;
-        if (blendControllers.contains(node))
+        if (blendControllers.find(node) != blendControllers.end())
         {
             animController = blendControllers.at(node);
             animController->setKeyframeTrack(keyframeController, stateData, blendRules);
@@ -1232,7 +1248,11 @@ namespace MWRender
 
         if (complete)
         {
-            *complete = iter->second.getCompletion();
+            if (iter->second.mStopTime > iter->second.mStartTime)
+                *complete = (iter->second.getTime() - iter->second.mStartTime)
+                    / (iter->second.mStopTime - iter->second.mStartTime);
+            else
+                *complete = (iter->second.mPlaying ? 0.0f : 1.0f);
         }
         if (speedmult)
             *speedmult = iter->second.mSpeedMult;
@@ -1264,10 +1284,7 @@ namespace MWRender
     {
         AnimStateMap::iterator iter = mStates.find(groupname);
         if (iter != mStates.end())
-        {
-            animationEnded(iter->second);
             mStates.erase(iter);
-        }
         resetActiveGroups();
     }
 
@@ -1406,8 +1423,7 @@ namespace MWRender
 
             if (!state.mPlaying && state.mAutoDisable)
             {
-                animationEnded(stateiter->second);
-                stateiter = mStates.erase(stateiter);
+                mStates.erase(stateiter++);
 
                 resetActiveGroups();
             }
@@ -1499,10 +1515,11 @@ namespace MWRender
         }
         animationPath.replace(animationPath.size() - 4, 4, "/");
 
-        for (const VFS::Path::Normalized& name : resourceSystem->getVFS()->getRecursiveDirectoryIterator(animationPath))
+        for (const auto& name : resourceSystem->getVFS()->getRecursiveDirectoryIterator(animationPath))
         {
-            if (Misc::getFileExtension(name) == "nif")
-                loadBonesFromFile(node, name, resourceSystem);
+            const VFS::Path::NormalizedView view(name);
+            if (Misc::getFileExtension(view.value()) == "nif")
+                loadBonesFromFile(node, view, resourceSystem);
         }
     }
 
@@ -1512,10 +1529,8 @@ namespace MWRender
         Resource::SceneManager* sceneMgr = resourceSystem->getSceneManager();
         if (baseonly)
         {
-            typedef std::map<std::string, osg::ref_ptr<osg::Node>> Cache;
-            static Cache cache;
-            Cache::iterator found = cache.find(model);
-            if (found == cache.end())
+            auto found = sAnimationModelCache.find(model);
+            if (found == sAnimationModelCache.end())
             {
                 osg::ref_ptr<osg::Node> created = sceneMgr->getInstance(VFS::Path::toNormalized(model));
 
@@ -1529,7 +1544,15 @@ namespace MWRender
                 created->accept(removeDrawableVisitor);
                 removeDrawableVisitor.remove();
 
-                cache.insert(std::make_pair(model, created));
+#ifdef __3DS__
+                // Hard-cap this otherwise unbounded static cache. Entries are
+                // cleaned base skeletons that rebuild cheaply from the
+                // SceneManager template cache, so dropping them on overflow is
+                // safe and stops monotonic heap growth between watchdog flushes.
+                if (sAnimationModelCache.size() >= 16)
+                    sAnimationModelCache.clear();
+#endif
+                sAnimationModelCache.insert(std::make_pair(model, created));
 
                 return sceneMgr->getInstance(created);
             }
@@ -1704,7 +1727,7 @@ namespace MWRender
     }
 
     void Animation::addEffect(std::string_view model, std::string_view effectId, bool loop, std::string_view bonename,
-        std::string_view texture, bool useAmbientLight, bool autoTransform, const std::optional<osg::Matrix>& transform)
+        std::string_view texture, bool useAmbientLight)
     {
         if (!mObjectRoot.get())
             return;
@@ -1729,7 +1752,7 @@ namespace MWRender
             parentNode = mInsert;
         else
         {
-            NodeMap::const_iterator found = getNodeMap().find(bonename);
+            NodeMap::const_iterator found = getNodeMap().find(std::string(bonename));
             if (found == getNodeMap().end())
                 throw std::runtime_error("Can't find bone " + std::string{ bonename });
 
@@ -1737,15 +1760,12 @@ namespace MWRender
         }
 
         osg::ref_ptr<SceneUtil::PositionAttitudeTransform> trans = new SceneUtil::PositionAttitudeTransform;
-
-        osg::Matrix finalTransform;
-
-        if (!mPtr.getClass().isNpc() && autoTransform)
+        if (!mPtr.getClass().isNpc())
         {
             osg::Vec3f bounds(MWBase::Environment::get().getWorld()->getHalfExtents(mPtr) * 2.f);
             float scale = std::max({ bounds.x(), bounds.y(), bounds.z() / 2.f }) / 64.f;
             if (scale > 1.f)
-                finalTransform = osg::Matrix::scale(scale, scale, scale);
+                trans->setScale(osg::Vec3f(scale, scale, scale));
             float offset = 0.f;
             if (bounds.z() < 128.f)
                 offset = bounds.z() - 128.f;
@@ -1753,28 +1773,18 @@ namespace MWRender
                 offset = 128.f - bounds.z();
             if (MWBase::Environment::get().getWorld()->isFlying(mPtr))
                 offset /= 20.f;
-
-            finalTransform.setTrans(osg::Vec3f(0.f, 0.f, offset * scale));
+            trans->setPosition(osg::Vec3f(0.f, 0.f, offset * scale));
         }
-
-        if (transform)
-        {
-            finalTransform *= (*transform);
-        }
-
-        trans->setScale(finalTransform.getScale());
-        trans->setAttitude(finalTransform.getRotate());
-        trans->setPosition(finalTransform.getTrans());
-
         parentNode->addChild(trans);
 
         osg::ref_ptr<osg::Node> node
-            = mResourceSystem->getSceneManager()->getInstance(VFS::Path::toNormalized(model), trans);
+            = mResourceSystem->getSceneManager()->getInstance(VFS::Path::toNormalized(model), trans, /*allowParticles=*/true);
 
         if (useAmbientLight)
         {
             // Morrowind has a white ambient light attached to the root VFX node of the scenegraph
-            SceneUtil::configureSunAmbientOverride(osg::Vec4f(1, 1, 1, 1), node->getOrCreateStateSet());
+            node->getOrCreateStateSet()->setAttributeAndModes(
+                getVFXLightModelInstance(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
         }
 
         mResourceSystem->getSceneManager()->setUpNormalsRTForStateSet(node->getOrCreateStateSet(), false);
@@ -1783,6 +1793,9 @@ namespace MWRender
         node->accept(findMaxLengthVisitor);
 
         node->setNodeMask(Mask_Effect);
+
+        MarkDrawablesVisitor markVisitor(Mask_Effect);
+        node->accept(markVisitor);
 
         params.mMaxControllerLength = findMaxLengthVisitor.getMaxLength();
         params.mLoop = loop;
@@ -1865,7 +1878,7 @@ namespace MWRender
 
     const osg::Node* Animation::getNode(std::string_view name) const
     {
-        NodeMap::const_iterator found = getNodeMap().find(name);
+        NodeMap::const_iterator found = getNodeMap().find(std::string(name));
         if (found == getNodeMap().end())
             return nullptr;
         else
@@ -1950,7 +1963,7 @@ namespace MWRender
 
     osg::ref_ptr<RotateController> Animation::addRotateController(std::string_view bone)
     {
-        auto iter = getNodeMap().find(bone);
+        auto iter = getNodeMap().find(std::string(bone));
         if (iter == getNodeMap().end())
             return nullptr;
         osg::MatrixTransform* node = iter->second;
@@ -2011,12 +2024,6 @@ namespace MWRender
 
         if (mObjectRoot != nullptr)
             mInsert->removeChild(mObjectRoot);
-    }
-
-    void Animation::animationEnded(AnimState& state) const
-    {
-        MWBase::Environment::get().getLuaManager()->animationEnded(
-            mPtr, state.mGroupname, state.getTime(), state.getCompletion(), state.mStartKey, state.mStopKey);
     }
 
     MWWorld::MovementDirectionFlags Animation::getSupportedMovementDirections(
@@ -2161,13 +2168,5 @@ namespace MWRender
                                     << ") parents";
             mNode->getParent(0)->removeChild(mNode);
         }
-    }
-
-    float Animation::AnimState::getCompletion() const
-    {
-        if (mStopTime > mStartTime)
-            return (getTime() - mStartTime) / (mStopTime - mStartTime);
-        else
-            return mPlaying ? 0.0f : 1.0f;
     }
 }

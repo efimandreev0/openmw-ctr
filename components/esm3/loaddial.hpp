@@ -3,6 +3,7 @@
 
 #include <list>
 #include <map>
+#include <memory>
 #include <string>
 
 #include "components/esm/defs.hpp"
@@ -45,6 +46,35 @@ namespace ESM
         Type mType;
         InfoContainer mInfo;
         InfoOrder<DialInfo> mInfoOrder;
+
+#ifdef __3DS__
+        // Section handle into the CtrInfoBlob once the diet pass baked this
+        // topic's infos and cleared mInfo (see ESMStore::setUp).
+        uint32_t mCtrInfoSection = 0xFFFFFFFFu;
+#endif
+
+        // Runtime accessor for this topic's INFO list. On desktop it is a
+        // zero-cost view over mInfo; on the 3DS it rematerializes the baked
+        // records through an LRU. Hold the returned handle for as long as
+        // iterators or DialInfo pointers derived from it are used.
+        class InfosHandle
+        {
+        public:
+            InfoContainer::const_iterator begin() const { return mList->begin(); }
+            InfoContainer::const_iterator end() const { return mList->end(); }
+            std::size_t size() const { return mList->size(); }
+            bool empty() const { return mList->empty(); }
+            const InfoContainer& get() const { return *mList; }
+
+        private:
+            friend struct Dialogue;
+#ifdef __3DS__
+            std::shared_ptr<const InfoContainer> mHold;
+#endif
+            const InfoContainer* mList = nullptr;
+        };
+
+        InfosHandle readInfos() const;
 
         // Parameters: Info ID, (Info iterator, Deleted flag)
         typedef std::map<ESM::RefId, std::pair<InfoContainer::iterator, bool>> LookupMap;

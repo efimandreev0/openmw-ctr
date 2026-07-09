@@ -36,10 +36,21 @@ namespace MWDialogue
     {
         const ESM::Dialogue* dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(mTopic);
 
-        for (ESM::Dialogue::InfoContainer::const_iterator iter(dialogue->mInfo.begin()); iter != dialogue->mInfo.end();
-             ++iter)
+        const auto infos = dialogue->readInfos();
+        for (auto iter = infos.begin(); iter != infos.end(); ++iter)
             if (iter->mQuestStatus == ESM::DialInfo::QS_Name)
+            {
+#ifdef __3DS__
+                // Response may live in the SD pool and the info list itself
+                // is rematerialized; keep the string alive past the return
+                // (UI consumes it immediately).
+                static thread_local std::string holder;
+                holder = iter->getResponse();
+                return holder;
+#else
                 return iter->mResponse;
+#endif
+            }
 
         return {};
     }
@@ -71,10 +82,10 @@ namespace MWDialogue
         const ESM::Dialogue* dialogue
             = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>().find(entry.mTopic);
 
-        auto info = std::find_if(
-            dialogue->mInfo.begin(), dialogue->mInfo.end(), [&](const auto& i) { return i.mId == entry.mInfoId; });
+        const auto infos = dialogue->readInfos();
+        auto info = std::find_if(infos.begin(), infos.end(), [&](const auto& i) { return i.mId == entry.mInfoId; });
 
-        if (info == dialogue->mInfo.end() || info->mData.mJournalIndex == -1)
+        if (info == infos.end() || info->mData.mJournalIndex == -1)
             throw std::runtime_error("unknown journal entry for topic " + mTopic.toDebugString());
 
         if (info->mQuestStatus == ESM::DialInfo::QS_Finished || info->mQuestStatus == ESM::DialInfo::QS_Restart)

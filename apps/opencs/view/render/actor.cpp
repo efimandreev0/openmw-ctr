@@ -25,6 +25,8 @@
 
 namespace CSVRender
 {
+    const std::string Actor::MeshPrefix = "meshes\\";
+
     Actor::Actor(const ESM::RefId& id, CSMWorld::Data& data)
         : mId(id)
         , mData(data)
@@ -128,13 +130,11 @@ namespace CSVRender
 
     std::string Actor::getBodyPartMesh(const ESM::RefId& bodyPartId)
     {
-        constexpr VFS::Path::NormalizedView meshPrefix("meshes/");
-
         const auto& bodyParts = mData.getBodyParts();
 
         const int index = bodyParts.searchId(bodyPartId);
         if (index != -1 && !bodyParts.getRecord(index).isDeleted())
-            return VFS::Path::join(meshPrefix, bodyParts.getRecord(index).get().mModel.getNormalized()).value();
+            return MeshPrefix + bodyParts.getRecord(index).get().mModel;
         else
             return "";
     }

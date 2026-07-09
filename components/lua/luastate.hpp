@@ -236,6 +236,10 @@ namespace LuaUtil
     template <typename... Args>
     sol::protected_function_result call(const sol::protected_function& fn, Args&&... args)
     {
+        LuaState* luaState = nullptr;
+        (void)lua_getallocf(fn.lua_state(), reinterpret_cast<void**>(&luaState));
+        if (luaState)
+            luaState->mWatchdogInstructionCounter = 0;
         try
         {
             auto res = LuaState::throwIfError(fn(std::forward<Args>(args)...));
@@ -256,28 +260,28 @@ namespace LuaUtil
     sol::protected_function_result call(ScriptId scriptId, const sol::protected_function& fn, Args&&... args)
     {
         LuaState* luaState = nullptr;
-        if (LuaState::sProfilerEnabled && scriptId.mContainer)
-        {
-            (void)lua_getallocf(fn.lua_state(), reinterpret_cast<void**>(&luaState));
+        (void)lua_getallocf(fn.lua_state(), reinterpret_cast<void**>(&luaState));
+        const bool trackScript = luaState && LuaState::sProfilerEnabled && scriptId.mContainer;
+        if (trackScript)
             luaState->mActiveScriptIdStack.push_back(scriptId);
+        if (luaState)
             luaState->mWatchdogInstructionCounter = 0;
-        }
         try
         {
             auto res = LuaState::throwIfError(fn(std::forward<Args>(args)...));
-            if (luaState)
+            if (trackScript)
                 luaState->mActiveScriptIdStack.pop_back();
             return res;
         }
         catch (std::exception&)
         {
-            if (luaState)
+            if (trackScript)
                 luaState->mActiveScriptIdStack.pop_back();
             throw;
         }
         catch (...)
         {
-            if (luaState)
+            if (trackScript)
                 luaState->mActiveScriptIdStack.pop_back();
             throw std::runtime_error("Unknown error");
         }

@@ -1,9 +1,8 @@
 #ifndef OPENMW_ESM_BOOK_H
 #define OPENMW_ESM_BOOK_H
 
-#include <components/esm/defs.hpp>
-#include <components/esm/path.hpp>
-#include <components/esm/refid.hpp>
+#include "components/esm/defs.hpp"
+#include "components/esm/refid.hpp"
 
 #include <cstdint>
 #include <string>
@@ -31,10 +30,13 @@ namespace ESM
         };
 
         BKDTstruct mData;
-        std::string mName;
-        Path mModel;
-        Path mIcon;
-        std::string mText;
+        std::string mName, mModel, mIcon, mText;
+
+        // 3DS: book text deferred to the SD string pool (see CtrStrPool).
+        uint32_t mTextOfs = 0, mTextLen = 0;
+
+        std::string getText() const;
+        bool hasText() const { return mTextLen != 0 || !mText.empty(); }
         uint32_t mRecordFlags;
         RefId mId;
         RefId mScript, mEnchant;

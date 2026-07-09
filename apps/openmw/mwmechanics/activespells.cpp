@@ -431,7 +431,7 @@ namespace MWMechanics
             if (animation && !reflectStatic->mModel.empty())
             {
                 const VFS::Path::Normalized reflectStaticModel
-                    = Misc::ResourceHelpers::correctMeshPath(reflectStatic->mModel.getNormalized());
+                    = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(reflectStatic->mModel));
                 animation->addEffect(reflectStaticModel, ESM::MagicEffect::Reflect.getValue(), false);
             }
             caster.getClass().getCreatureStats(caster).getActiveSpells().addSpell(*reflected);
@@ -494,8 +494,6 @@ namespace MWMechanics
             });
             if (found != mSpells.end())
             {
-                if (!spell.hasFlag(ESM::ActiveSpells::Flag_Temporary))
-                    return;
                 if (merge(found->mEffects, spell.mEffects))
                     return;
                 for (auto& effect : found->mEffects)

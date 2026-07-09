@@ -57,15 +57,6 @@ namespace MWLua
             std::string mGroupname;
             std::string mKey;
         };
-        struct OnAnimationEnded
-        {
-            ESM::RefNum mActor;
-            std::string mGroupname;
-            std::string mStartKey;
-            std::string mStopKey;
-            float mTime;
-            float mCompletion;
-        };
         struct OnSkillUse
         {
             ESM::RefNum mActor;
@@ -85,7 +76,7 @@ namespace MWLua
             int mDays;
         };
         using Event = std::variant<OnActive, OnInactive, OnConsume, OnActivate, OnUseItem, OnNewExterior, OnTeleported,
-            OnAnimationTextKey, OnAnimationEnded, OnSkillUse, OnSkillLevelUp, OnJailTimeServed>;
+            OnAnimationTextKey, OnSkillUse, OnSkillLevelUp, OnJailTimeServed>;
 
         void clear() { mQueue.clear(); }
         void addToQueue(Event e) { mQueue.push_back(std::move(e)); }

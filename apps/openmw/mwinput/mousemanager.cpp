@@ -1,5 +1,7 @@
 #include "mousemanager.hpp"
 
+#include <algorithm>
+
 #include <MyGUI_Button.h>
 #include <MyGUI_InputManager.h>
 #include <MyGUI_RenderManager.h>
@@ -27,6 +29,7 @@ namespace MWInput
         BindingsManager* bindingsManager, SDLUtil::InputWrapper* inputWrapper, SDL_Window* window)
         : mBindingsManager(bindingsManager)
         , mInputWrapper(inputWrapper)
+        , mSDLWindow(window)
         , mGuiCursorX(0)
         , mGuiCursorY(0)
         , mMouseWheel(0)
@@ -45,6 +48,20 @@ namespace MWInput
         mGuiCursorY = h / (2.f * uiScale);
     }
 
+#if defined(__vita__) || defined(__3DS__)
+    // On Vita the window is 960x544 but MyGUI renders into a 576x320 FBO that
+    // vitaGL upscales. SDL reports mouse/touch position in window space, so we
+    // need viewSize/windowSize to land cursor coords in MyGUI's render space.
+    static void vitaWindowToGuiScale(SDL_Window* window, float& outX, float& outY)
+    {
+        int winW = 0, winH = 0;
+        SDL_GetWindowSize(window, &winW, &winH);
+        const MyGUI::IntSize viewSize = MyGUI::RenderManager::getInstance().getViewSize();
+        outX = (winW > 0 && viewSize.width > 0) ? static_cast<float>(viewSize.width) / winW : 1.f;
+        outY = (winH > 0 && viewSize.height > 0) ? static_cast<float>(viewSize.height) / winH : 1.f;
+    }
+#endif
+
     void MouseManager::mouseMoved(const SDLUtil::MouseMotionEvent& arg)
     {
         mBindingsManager->mouseMoved(arg);
@@ -60,13 +77,23 @@ namespace MWInput
             // We keep track of our own mouse position, so that moving the mouse while in
             // game mode does not move the position of the GUI cursor
             MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+#if defined(__vita__) || defined(__3DS__)
+            float sx, sy;
+            vitaWindowToGuiScale(mSDLWindow, sx, sy);
+            mGuiCursorX = static_cast<float>(arg.x) * sx;
+            mGuiCursorY = static_cast<float>(arg.y) * sy;
+#else
             float uiScale = winMgr->getScalingFactor();
             mGuiCursorX = static_cast<float>(arg.x) / uiScale;
             mGuiCursorY = static_cast<float>(arg.y) / uiScale;
+#endif
 
-            if (arg.zrel != 0)
-                mMouseWheel = static_cast<int>(arg.z);
+            mMouseWheel = static_cast<int>(arg.z);
 
+            MyGUI::InputManager::getInstance().injectMouseMove(
+                static_cast<int>(mGuiCursorX), static_cast<int>(mGuiCursorY), mMouseWheel);
+            // FIXME: inject twice to force updating focused widget states (tooltips) resulting from changing the
+            // viewport by scroll wheel
             MyGUI::InputManager::getInstance().injectMouseMove(
                 static_cast<int>(mGuiCursorX), static_cast<int>(mGuiCursorY), mMouseWheel);
 
@@ -275,9 +302,17 @@ namespace MWInput
 
     void MouseManager::warpMouse()
     {
+#if defined(__vita__) || defined(__3DS__)
+        float sx, sy;
+        vitaWindowToGuiScale(mSDLWindow, sx, sy);
+        mInputWrapper->warpMouse(
+            static_cast<int>(mGuiCursorX / std::max(sx, 1e-4f)),
+            static_cast<int>(mGuiCursorY / std::max(sy, 1e-4f)));
+#else
         float guiUiScale = Settings::gui().mScalingFactor;
         mInputWrapper->warpMouse(
             static_cast<int>(mGuiCursorX * guiUiScale), static_cast<int>(mGuiCursorY * guiUiScale));
+#endif
     }
 
     void MouseManager::warpMouseToWidget(MyGUI::Widget* widget)

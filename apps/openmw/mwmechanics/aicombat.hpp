@@ -29,7 +29,6 @@ namespace MWMechanics
         AiReactionTimer mReaction;
         float mTimerCombatMove;
         bool mReadyToAttack;
-        bool mShouldApproach{ true };
         bool mAttack;
         float mAttackRange;
         bool mCombatMove;

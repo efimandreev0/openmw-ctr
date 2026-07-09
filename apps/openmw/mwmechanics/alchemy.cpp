@@ -317,12 +317,10 @@ void MWMechanics::Alchemy::addPotion(const std::string& name)
     int index = Misc::Rng::rollDice(6, prng);
     assert(index >= 0 && index < 6);
 
-    constexpr std::string_view meshes[] = { "standard", "bargain", "cheap", "fresh", "exclusive", "quality" };
+    static const char* meshes[] = { "standard", "bargain", "cheap", "fresh", "exclusive", "quality" };
 
-    const std::string_view mesh = meshes[index];
-
-    newRecord.mModel = std::format("m\\misc_potion_{}_01.nif", mesh);
-    newRecord.mIcon = std::format("m\\tx_potion_{}_01.dds", mesh);
+    newRecord.mModel = "m\\misc_potion_" + std::string(meshes[index]) + "_01.nif";
+    newRecord.mIcon = "m\\tx_potion_" + std::string(meshes[index]) + "_01.dds";
 
     newRecord.mEffects.populate(mEffects);
 

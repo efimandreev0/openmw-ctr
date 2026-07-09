@@ -1,6 +1,6 @@
 ---
 -- Defines functions for specific types of game objects.
--- @context global|local|player
+-- @context global|menu|local|player
 -- @module types
 -- @usage local types = require('openmw.types')
 
@@ -155,32 +155,6 @@
 -- @function [parent=#Actor] setStance
 -- @param openmw.core#GameObject actor
 -- @param #number stance
-
----
--- Sets whether the actor is knocked down.
--- Available in global and local scripts. Can only be used on self in local scripts.
--- @function [parent=#Actor] setKnockedDown
--- @param openmw.core#GameObject actor
--- @param #boolean value
-
----
--- Is the actor knocked down.
--- @function [parent=#Actor] getKnockedDown
--- @param openmw.core#GameObject actor
--- @return #boolean
-
----
--- Sets whether the actor is in hit recovery.
--- Available in global and local scripts. Can only be used on self in local scripts.
--- @function [parent=#Actor] setHitRecovery
--- @param openmw.core#GameObject actor
--- @param #boolean value
-
----
--- Is the actor in hit recovery.
--- @function [parent=#Actor] getHitRecovery
--- @param openmw.core#GameObject actor
--- @return #boolean
 
 ---
 -- Returns `true` if the item is equipped on the actor.
@@ -465,27 +439,27 @@
 -- @field #number magic Number of contributions to magic specialization for the next level up.
 -- @field #number stealth Number of contributions to stealth specialization for the next level up.
 
---- Value modification is delayed
+---
 -- @type LevelStat
 -- @field #number current The actor's current level.
 -- @field #number progress The NPC's level progress.
 -- @field #SkillIncreasesForAttributeStats skillIncreasesForAttribute The NPC's attribute contributions towards the next level up. Values affect how much each attribute can be increased at level up.
 -- @field #SkillIncreasesForSpecializationStats skillIncreasesForSpecialization The NPC's attribute contributions towards the next level up. Values affect the graphic used on the level up screen.
 
---- Value modification is delayed
+---
 -- @type DynamicStat
 -- @field #number base
 -- @field #number current
 -- @field #number modifier
 
---- Value modification is delayed
+---
 -- @type AttributeStat
 -- @field #number base The actor's base attribute value.
 -- @field #number damage The amount the attribute has been damaged.
 -- @field #number modified The actor's current attribute value (read-only.)
 -- @field #number modifier The attribute's modifier.
 
---- Value modification is delayed
+---
 -- @type SkillStat
 -- @field #number base The NPC's base skill value.
 -- @field #number damage The amount the skill has been damaged.
@@ -493,15 +467,11 @@
 -- @field #number modifier The skill's modifier.
 -- @field #number progress [0-1] The NPC's skill progress.
 
---- Value modification is delayed
+---
 -- @type AIStat
 -- @field #number base The stat's base value.
 -- @field #number modifier The stat's modifier.
 -- @field #number modified The actor's current ai value (read-only.)
-
---- Value modification is delayed
--- @type ReputationStat
--- @field #number current Current reputation value.
 
 ---
 -- @type DynamicStats
@@ -786,7 +756,6 @@
 -- @type NpcStats
 -- @extends #ActorStats
 -- @field #SkillStats skills
--- @field #ReputationStat reputation
 
 
 --------------------------------------------------------------------------------
@@ -921,7 +890,6 @@
 -- @field #string primaryFaction Faction ID of the NPCs default faction. Nil if no faction
 -- @field #number primaryFactionRank Faction rank of the NPCs default faction. Nil if no faction
 -- @field #boolean isEssential whether the creature is essential
--- @field #boolean isPersistent If true, the creature will not despawn after death.
 -- @field #boolean isRespawning whether the creature respawns after death
 -- @field #number bloodType integer representing the blood type of the Creature. Used to generate the correct blood vfx.
 
@@ -1216,7 +1184,6 @@
 -- @field #list<#TravelDestination> travelDestinations A list of @{#TravelDestination}s for this NPC.
 -- @field #boolean isEssential whether the NPC is essential
 -- @field #boolean isRespawning whether the NPC respawns after death
--- @field #boolean isPersistent If true, the NPC will not despawn after death.
 -- @field #boolean isAutocalc If true, the actor's stats will be automatically calculated based on level and class.
 -- @field #number bloodType integer representing the blood type of the NPC. Used to generate the correct blood vfx.
 
@@ -1531,7 +1498,7 @@
 -- Creates an @{#ArmorRecord} without adding it to the world database, for the armor to appear correctly on the body, make sure to use a template as described below.
 -- Use @{openmw_world#(world).createRecord} to add the record to the world.
 -- @function [parent=#Armor] createRecordDraft
--- @param #ArmorRecord armor A Lua table with the fields of an ArmorRecord, with an additional field `template` that accepts an @{#ArmorRecord} as a base.
+-- @param #ArmorRecord armor A Lua table with the fields of a ArmorRecord, with an additional field `template` that accepts a @{#ArmorRecord} as a base.
 -- @return #ArmorRecord A strongly typed Armor record.
 -- @usage local armorTemplate = types.Armor.record('orcish_cuirass')
 -- local armorTable = {name = "Better Orcish Cuirass",template = armorTemplate,baseArmor = armorTemplate.baseArmor + 10}
@@ -1539,36 +1506,6 @@
 -- local recordDraft = types.Armor.createRecordDraft(armorTable)--Need to convert the table into the record draft
 -- local newRecord = world.createRecord(recordDraft)--This creates the actual record
 -- world.createObject(newRecord.id):moveInto(playerActor)--Create an instance of this object, and move it into the player's inventory
-
-
---- @{#BodyPart} functions
--- @field [parent=#types] #BodyPart BodyPart
-
----
--- @type BodyPart
-
----
--- A read-only list of all @{#BodyPartRecord}s in the world database.
--- Implements [iterables#List](iterables.html#List) of #BodyPartRecord.
--- @field [parent=#BodyPart] #list<#BodyPartRecord> records
--- @usage local record = types.BodyPart.records['example_recordid']
--- @usage local record = types.BodyPart.records[1]
-
----
--- Whether the object is a BodyPart.
--- @function [parent=#BodyPart] objectIsInstance
--- @param openmw.core#GameObject object
--- @return #boolean
-
----
--- @type BodyPartRecord
--- @field #string id The record ID of the body part
--- @field #string race The id of the race of the body part
--- @field #string model VFS path to the model
--- @field #boolean isFemale Whether the body part only applies to female characters
--- @field #boolean isPlayable Whether the player can choose this part
--- @field #boolean isVampire Whether this body part is meant for vampires
--- @field #string type `armor`, `clothing`, or `skin`
 
 
 --- @{#Book} functions
@@ -1732,13 +1669,6 @@
 -- @type Ingredient
 -- @extends #Item
 -- @field #Item baseType @{#Item}
-
----
--- Creates an @{#IngredientRecord} without adding it to the world database.
--- Use @{openmw_world#(world).createRecord} to add the record to the world.
--- @function [parent=#Ingredient] createRecordDraft
--- @param #IngredientRecord ingredient A Lua table with the fields of an IngredientRecord, with an optional field `template` that accepts an @{#IngredientRecord} as a base.
--- @return #IngredientRecord A strongly typed Ingredient record.
 
 ---
 -- A read-only list of all @{#IngredientRecord}s in the world database.
@@ -2171,13 +2101,6 @@
 -- @field #Item baseType @{#Item}
 
 ---
--- Creates a @{#ProbeRecord} without adding it to the world database.
--- Use @{openmw_world#(world).createRecord} to add the record to the world.
--- @function [parent=#Probe] createRecordDraft
--- @param #ProbeRecord probe A Lua table with the fields of a ProbeRecord, with an optional field `template` that accepts a @{#ProbeRecord} as a base.
--- @return #ProbeRecord A strongly typed Probe record.
-
----
 -- A read-only list of all @{#ProbeRecord}s in the world database.
 -- Implements [iterables#List](iterables.html#List) of #ProbeRecord.
 -- @field [parent=#Probe] #list<#ProbeRecord> records
@@ -2283,7 +2206,7 @@
 -- Creates an @{#ActivatorRecord} without adding it to the world database.
 -- Use @{openmw_world#(world).createRecord} to add the record to the world.
 -- @function [parent=#Activator] createRecordDraft
--- @param #ActivatorRecord activator A Lua table with the fields of an ActivatorRecord, with an optional field `template` that accepts an @{#ActivatorRecord} as a base.
+-- @param #ActivatorRecord activator A Lua table with the fields of a ActivatorRecord, with an optional field `template` that accepts a @{#ActivatorRecord} as a base.
 -- @return #ActivatorRecord A strongly typed Activator record.
 
 
@@ -2381,13 +2304,6 @@
 -- @usage local state = types.Door.STATE["Idle"]
 
 ---
--- Creates a @{#DoorRecord} without adding it to the world database.
--- Use @{openmw_world#(world).createRecord} to add the record to the world.
--- @function [parent=#Door] createRecordDraft
--- @param #DoorRecord door A Lua table with the fields of a DoorRecord, with an optional field `template` that accepts a @{#DoorRecord} as a base.
--- @return #DoorRecord A strongly typed Door record.
-
----
 -- A read-only list of all @{#DoorRecord}s in the world database.
 -- Implements [iterables#List](iterables.html#List) of #DoorRecord.
 -- @field [parent=#Door] #list<#DoorRecord> records
@@ -2474,13 +2390,6 @@
 
 ---
 -- @type Static
-
----
--- Creates a @{#StaticRecord} without adding it to the world database.
--- Use @{openmw_world#(world).createRecord} to add the record to the world.
--- @function [parent=#Static] createRecordDraft
--- @param #StaticRecord static A Lua table with the fields of a StaticRecord, with an optional field `template` that accepts a @{#StaticRecord} as a base.
--- @return #StaticRecord A strongly typed Static record.
 
 ---
 -- A read-only list of all @{#StaticRecord}s in the world database.

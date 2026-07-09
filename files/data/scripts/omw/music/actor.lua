@@ -5,6 +5,9 @@ local nearby = require("openmw.nearby")
 
 local targets = {}
 
+local kSkipInterval = 3
+local frameCounter = math.random(0, kSkipInterval - 1)
+
 local function emitTargetsChanged()
     for _, actor in ipairs(nearby.players) do
         actor:sendEvent("OMWMusicCombatTargetsChanged", { actor = self, targets = targets })
@@ -12,6 +15,12 @@ local function emitTargetsChanged()
 end
 
 local function onUpdate(dt)
+    frameCounter = frameCounter + 1
+    if frameCounter < kSkipInterval then
+        return
+    end
+    frameCounter = 0
+
     if types.Actor.isDeathFinished(self) or not types.Actor.isInActorsProcessingRange(self) then
         if next(targets) ~= nil then
             targets = {}

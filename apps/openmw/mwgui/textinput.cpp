@@ -9,6 +9,11 @@
 
 #include <components/esm/refid.hpp>
 
+#if defined(__vita__) || defined(__3DS__)
+#include "../vita/VitaIme.h"
+#include "../vita/VitaInit.h"
+#endif
+
 namespace MWGui
 {
 
@@ -28,6 +33,9 @@ namespace MWGui
         // Make sure the edit box has focus
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
 
+#if defined(__vita__) || defined(__3DS__)
+        mDisableGamepadCursor = true;
+#endif
         mControllerButtons.mA = "#{Interface:OK}";
     }
 
@@ -54,12 +62,36 @@ namespace MWGui
         WindowModal::onOpen();
         // Make sure the edit box has focus
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
+#if defined(__vita__) || defined(__3DS__)
+        // Auto-open the IME so the user doesn't have to press A first.
+        // On confirm we auto-submit the dialog (same flow as the A-button
+        // handler below); on cancel we leave it visible so they can
+        // press A to retry or B to back out.
+        if (Vita::fillEditBoxFromIme(mTextEdit, "Enter Name", 64))
+        {
+            eventDone(this);
+        }
+#endif
     }
 
     // widget controls
 
     void TextInputDialog::onOkClicked(MyGUI::Widget* /*sender*/)
     {
+#if defined(__vita__) || defined(__3DS__)
+        // On Vita, if text is empty, open the IME keyboard instead of showing an error
+        if (mTextEdit->getCaption().empty())
+        {
+            Vita::breadcrumb("[TextInput] onOkClicked: text empty, opening IME");
+            std::string result = Vita::openTextDialog("Enter Name", "", 64);
+            if (!result.empty())
+            {
+                mTextEdit->setCaption(result);
+                eventDone(this);
+            }
+            return;
+        }
+#endif
         if (mTextEdit->getCaption().empty())
         {
             MWBase::Environment::get().getWindowManager()->messageBox("#{sNotifyMessage37}");
@@ -89,9 +121,23 @@ namespace MWGui
 
     bool TextInputDialog::onControllerButtonEvent(const SDL_ControllerButtonEvent& arg)
     {
+#if defined(__vita__) || defined(__3DS__)
+        Vita::breadcrumb("[TextInput] onControllerButtonEvent called");
+#endif
         if (arg.button == SDL_CONTROLLER_BUTTON_A)
         {
+#if defined(__vita__) || defined(__3DS__)
+            Vita::breadcrumb("[TextInput] A button pressed, opening IME");
+            std::string current = mTextEdit->getCaption().asUTF8();
+            std::string result = Vita::openTextDialog("Enter Name", current.c_str(), 64);
+            if (!result.empty())
+            {
+                mTextEdit->setCaption(result);
+                eventDone(this);
+            }
+#else
             onOkClicked(nullptr);
+#endif
             MWBase::Environment::get().getWindowManager()->playSound(ESM::RefId::stringRefId("Menu Click"));
             return true;
         }

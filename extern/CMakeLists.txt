@@ -16,7 +16,11 @@ if(NOT OPENMW_USE_SYSTEM_BULLET)
     set(BUILD_EGL OFF CACHE BOOL "")
 
     set(USE_DOUBLE_PRECISION ON CACHE BOOL "")
-    set(BULLET2_MULTITHREADING ON CACHE BOOL "")
+    if(VITA OR CTR)
+        set(BULLET2_MULTITHREADING OFF CACHE BOOL "" FORCE)
+    else()
+        set(BULLET2_MULTITHREADING ON CACHE BOOL "")
+    endif()
 
     if(BULLET_STATIC)
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -42,12 +46,19 @@ if(NOT OPENMW_USE_SYSTEM_BULLET)
 
     set(BULLET_INCLUDE_DIRS ${bullet_SOURCE_DIR}/src PARENT_SCOPE)
 
+    # Do NOT use -fno-exceptions on Bullet: callbacks into OpenMW can throw.
+
     # The order here is important to work around a bug in Bullet:
     # https://github.com/bulletphysics/bullet3/issues/3233
     set(BULLET_LIBRARIES BulletCollision LinearMath PARENT_SCOPE)
 endif()
 
 if(NOT OPENMW_USE_SYSTEM_MYGUI)
+
+    # MyGUI 3.4.3 uses modern imported targets — ensure they exist
+    find_package(BZip2 QUIET)
+    find_package(PNG QUIET)
+    find_package(ZLIB QUIET)
 
     set(MYGUI_RENDERSYSTEM 4 CACHE STRING "")
     set(MYGUI_DISABLE_PLUGINS TRUE CACHE BOOL "")
@@ -63,10 +74,20 @@ if(NOT OPENMW_USE_SYSTEM_MYGUI)
     endif()
 
     include(FetchContent)
+    # MyGUI replaces CMAKE_MODULE_PATH with its own dirs, so our custom
+    # FindOpenGL (needed on CTR — no GLX there) is unreachable inside it.
+    # Drop a copy into MyGUI's CMake/Packages so its find_package(OpenGL) uses it.
+    if(CTR)
+        set(_mygui_patch_cmd PATCH_COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/cmake/FindOpenGL.cmake <SOURCE_DIR>/CMake/Packages/FindOpenGL.cmake)
+    else()
+        set(_mygui_patch_cmd "")
+    endif()
     FetchContent_Declare(mygui
         URL https://github.com/MyGUI/mygui/archive/refs/tags/MyGUI3.4.3.zip
         URL_HASH SHA512=c804ef665e786076582367f171082cd2181fdbd214300ddcca4a4245c5a0f45e62e72778ee2d96ec46b393e22477dd729f9bb3006e6eecbf536674e34a057721
         SOURCE_DIR fetched/mygui
+        ${_mygui_patch_cmd}
     )
     FetchContent_MakeAvailable(mygui)
 
@@ -82,7 +103,11 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
 
     set(BUILD_OSG_PLUGINS_BY_DEFAULT OFF CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_BMP ON CACHE BOOL "")
-    set(BUILD_OSG_PLUGIN_DAE ON CACHE BOOL "")
+    if(NOT VITA AND NOT CTR)
+        set(BUILD_OSG_PLUGIN_DAE ON CACHE BOOL "")
+    else()
+        set(BUILD_OSG_PLUGIN_DAE OFF CACHE BOOL "" FORCE)
+    endif()
     set(BUILD_OSG_PLUGIN_DDS ON CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_FREETYPE ON CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_JPEG ON CACHE BOOL "")
@@ -91,11 +116,38 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
     set(BUILD_OSG_PLUGIN_PNG ON CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_TGA ON CACHE BOOL "")
 
-    set(OSG_USE_FLOAT_MATRIX OFF CACHE BOOL "")
-    set(OSG_USE_FLOAT_PLANE OFF CACHE BOOL "")
-    set(OSG_USE_FLOAT_QUAT OFF CACHE BOOL "")
+    if(VITA OR CTR)
+        # vitaGL/NovaGL only have float GL functions, not double
+        set(OSG_USE_FLOAT_MATRIX ON CACHE BOOL "" FORCE)
+        set(OSG_USE_FLOAT_PLANE ON CACHE BOOL "" FORCE)
+        set(OSG_USE_FLOAT_QUAT ON CACHE BOOL "" FORCE)
+        # NOTE: FLOAT_BOUNDINGSPHERE/BOUNDINGBOX cause ODR violations with incremental
+        # builds (RefMatrixf vs RefMatrixd mismatch triggers GCC 10 ICE). Only safe with
+        # full clean builds. Leaving disabled for now.
+        # Compile out all osg::notify() calls — no console on Vita
+        set(OSG_NOTIFY_DISABLED ON CACHE BOOL "" FORCE)
+    else()
+        set(OSG_USE_FLOAT_MATRIX OFF CACHE BOOL "")
+        set(OSG_USE_FLOAT_PLANE OFF CACHE BOOL "")
+        set(OSG_USE_FLOAT_QUAT OFF CACHE BOOL "")
+    endif()
 
     set(OPENGL_PROFILE "GL2" CACHE STRING "")
+
+    if(VITA OR CTR)
+        # OSG_GL_LIBRARY_STATIC causes OSG to build GLStaticLibrary.cpp, which creates
+        # a static function pointer table. Many functions don't exist in vitaGL
+        # (glBlendColor, glDetachShader, glIsBuffer, etc.), causing compilation errors.
+        # vitaGL already links GL functions directly, so we don't need the static table.
+        set(OSG_GL_LIBRARY_STATIC OFF CACHE BOOL "" FORCE)
+        # vitaGL display lists are non-functional without HAVE_DISPLAY_LISTS build flag.
+        # With only 1 display list slot, glGenLists returns the same ID for all drawables,
+        # and glCallList replays an empty list (nothing recorded without HAVE_DLISTS).
+        # This causes all NIF geometry to disappear after its first frame.
+        set(OSG_GL_DISPLAYLISTS_AVAILABLE OFF CACHE BOOL "" FORCE)
+        # Disable windowing system (vitaGL handles this, no X11/Windows needed)
+        set(OSG_WINDOWING_SYSTEM "None" CACHE STRING "" FORCE)
+    endif()
 
     if(OSG_STATIC)
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -129,12 +181,42 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
 
     # OSGoS branch 3.6
     include(FetchContent)
+    # Console-only OSG compatibility patches.
+    if(VITA)
+        set(_osg_patch_cmd PATCH_COMMAND patch -p1 -N -r- --input=${CMAKE_SOURCE_DIR}/patches/osg/vita-compat.patch || true)
+    elseif(CTR)
+        set(_osg_patch_cmd PATCH_COMMAND patch -p1 -N -r- --input=${CMAKE_SOURCE_DIR}/patches/osg/ctr-compat.patch || true)
+    else()
+        set(_osg_patch_cmd "")
+    endif()
     FetchContent_Declare(osg
         URL https://github.com/OpenMW/osg/archive/01cc2b585c8456a4ff843066b7e1a8715558289f.zip
         URL_HASH SHA512=9b0a94c1c1d99c767f1857629d43c7a53bfcb74ef760993a121567831e168a1ebbfc10b0c67d7f2241c7b6c6dab2d0e6b876d9f17aca0fabe1a8c86b2279f956
         SOURCE_DIR fetched/osg
+        ${_osg_patch_cmd}
     )
+    # Vita toolchain sets CMAKE_SYSTEM_NAME=Generic, which makes UNIX false.
+    # OpenThreads needs UNIX=true to select the pthreads backend.
+    if(CTR)
+        # devkitARM's CMAKE_SYSTEM_NAME=Nintendo3DS makes UNIX false, but
+        # OpenThreads needs UNIX=true to select the pthreads backend
+        # (devkitARM newlib has working pthreads).
+        set(UNIX TRUE)
+    endif()
+    if(VITA)
+        set(UNIX TRUE)
+        # Force veneer generation for long-range calls in OSG libraries
+        # Note: The linker flag must be added at link time, not compile time.
+        # However, CMake doesn't always propagate linker flags from toolchain files
+        # to FetchContent subprojects, so we explicitly set them here.
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+        set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+    endif()
     FetchContent_MakeAvailable(osg)
+    if(VITA OR CTR)
+        set(UNIX FALSE)
+    endif()
 
     set(OPENSCENEGRAPH_INCLUDE_DIRS ${osg_SOURCE_DIR}/include ${osg_BINARY_DIR}/include PARENT_SCOPE)
     set(OSG_LIBRARIES OpenThreads osg PARENT_SCOPE)
@@ -179,11 +261,15 @@ if (NOT OPENMW_USE_SYSTEM_SQLITE3)
 
     add_library(sqlite3 STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
     target_include_directories(sqlite3 INTERFACE ${sqlite3_SOURCE_DIR}/)
-    if (UNIX)
+    if(VITA OR CTR)
+        target_compile_definitions(sqlite3 PRIVATE SQLITE_OS_OTHER=1 SQLITE_TEMP_STORE=3)
+    elseif (UNIX)
         target_link_libraries(sqlite3 ${CMAKE_DL_LIBS})
     endif()
+    add_library(SQLite::SQLite3 ALIAS sqlite3)
 
-    add_library(SQLite3::SQLite3 ALIAS sqlite3)
+    set(SQLite3_INCLUDE_DIR ${sqlite3_SOURCE_DIR}/ PARENT_SCOPE)
+    set(SQLite3_LIBRARY sqlite3 PARENT_SCOPE)
 endif()
 
 add_subdirectory(smhasher)
@@ -220,6 +306,13 @@ if (NOT OPENMW_USE_SYSTEM_YAML_CPP)
     )
     FetchContent_MakeAvailable(yaml-cpp)
 
+    if (VITA OR CTR)
+        # yaml-cpp forces POSITION_INDEPENDENT_CODE ON for static builds,
+        # but Vita has no dynamic linker and PIC generates R_ARM_BASE_PREL
+        # relocations that vita-elf-create cannot handle.
+        set_target_properties(yaml-cpp PROPERTIES POSITION_INDEPENDENT_CODE OFF)
+    endif()
+
     if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
         target_precompile_headers(yaml-cpp PRIVATE <algorithm>)
     endif()
@@ -227,7 +320,48 @@ endif()
 
 if (NOT OPENMW_USE_SYSTEM_ICU)
     set(ICU_ENV "ICU_DATA_FILTER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/icufilters.json")
-    if (ANDROID)
+    if (VITA)
+        set(ICU_HOST_BUILD_DIR "${CMAKE_BINARY_DIR}/extern/icu-host-build" CACHE STRING
+            "Host ICU build directory (needed for data filtering during cross-compile)")
+        if (NOT EXISTS "${ICU_HOST_BUILD_DIR}/bin/icupkg")
+            message(FATAL_ERROR "ICU host build not found at ${ICU_HOST_BUILD_DIR}. "
+                "Build host ICU first: mkdir -p ${ICU_HOST_BUILD_DIR} && cd ${ICU_HOST_BUILD_DIR} && "
+                "${CMAKE_BINARY_DIR}/extern/fetched/icu/icu4c/source/configure "
+                "--enable-static --disable-shared --disable-extras --disable-tests --disable-samples && make -j")
+        endif()
+        set(ICU_ENV
+            ${ICU_ENV}
+            "CC=${CMAKE_C_COMPILER}"
+            "CXX=${CMAKE_CXX_COMPILER}"
+            "RANLIB=${CMAKE_RANLIB}"
+            "AR=${CMAKE_AR}"
+            "CFLAGS=-Os -mthumb"
+            "CXXFLAGS=-Os -mthumb"
+        )
+        set(ICU_ADDITIONAL_OPTS --disable-tools --host=arm-vita-eabi --with-cross-build=${ICU_HOST_BUILD_DIR})
+    elseif (CTR)
+        set(ICU_HOST_BUILD_DIR "${CMAKE_BINARY_DIR}/extern/icu-host-build" CACHE STRING
+            "Host ICU build directory (needed for data filtering during cross-compile)")
+        if (NOT EXISTS "${ICU_HOST_BUILD_DIR}/bin/icupkg" AND EXISTS "$ENV{HOME}/ctr-deps-build/icu-host/bin/icupkg")
+            # Shared host build produced by scripts/ctr-deps — lets a fresh
+            # build tree (e.g. a CLion profile) configure with no extra flags.
+            set(ICU_HOST_BUILD_DIR "$ENV{HOME}/ctr-deps-build/icu-host" CACHE STRING "" FORCE)
+        endif()
+        if (NOT EXISTS "${ICU_HOST_BUILD_DIR}/bin/icupkg")
+            message(FATAL_ERROR "ICU host build not found at ${ICU_HOST_BUILD_DIR}. "
+                "Build host ICU first (see scripts/ctr-deps) and pass -DICU_HOST_BUILD_DIR=")
+        endif()
+        set(ICU_ENV
+            ${ICU_ENV}
+            "CC=${CMAKE_C_COMPILER}"
+            "CXX=${CMAKE_CXX_COMPILER}"
+            "RANLIB=${CMAKE_RANLIB}"
+            "AR=${CMAKE_AR}"
+            "CFLAGS=-O2 -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -D__3DS__ -U__INT32_TYPE__ -D__INT32_TYPE__=int -U__UINT32_TYPE__ -ffunction-sections -fdata-sections"
+            "CXXFLAGS=-O2 -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft -D__3DS__ -U__INT32_TYPE__ -D__INT32_TYPE__=int -U__UINT32_TYPE__ -ffunction-sections -fdata-sections"
+        )
+        set(ICU_ADDITIONAL_OPTS --disable-tools --host=arm-none-eabi --with-cross-build=${ICU_HOST_BUILD_DIR})
+    elseif (ANDROID)
         # Note: Must be a build directory, not an install root, since the configure script
         # looks for a configuration file which does not get installed.
         set(OPENMW_ICU_HOST_BUILD_DIR "" CACHE STRING "A pre-built ICU build directory for the host system if cross-compiling")
@@ -259,10 +393,31 @@ if (NOT OPENMW_USE_SYSTEM_ICU)
         URL https://github.com/unicode-org/icu/archive/refs/tags/release-70-1.zip
         URL_HASH MD5=49d5e2e5bab93ae1a4b56e916150544c
         SOURCE_DIR fetched/icu
+        # Vita/CTR: ICU doesn't recognize arm-vita-eabi/arm-none-eabi — copy mh-linux as mh-unknown
+        PATCH_COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            <SOURCE_DIR>/icu4c/source/config/mh-linux
+            <SOURCE_DIR>/icu4c/source/config/mh-unknown
+        # newlib defines int32_t as long — std::max(0, int32_t) is ambiguous there
+        COMMAND sed -i "s/std::max(0, evictableItems - unusedLimit)/std::max<int32_t>(0, evictableItems - unusedLimit)/"
+            <SOURCE_DIR>/icu4c/source/common/unifiedcache.cpp
+        # newlib int32_t=long: AffixPatternProvider base uses `int` while the
+        # overrides use int32_t — identical on mainstream ABIs, not on newlib.
+        COMMAND sed -i "s/charAt(int flags, int i)/charAt(int32_t flags, int32_t i)/g"
+            <SOURCE_DIR>/icu4c/source/i18n/number_types.h
+            <SOURCE_DIR>/icu4c/source/i18n/number_mapper.cpp
+        COMMAND sed -i "s/int length(int flags)/int32_t length(int32_t flags)/g"
+            <SOURCE_DIR>/icu4c/source/i18n/number_types.h
+            <SOURCE_DIR>/icu4c/source/i18n/number_mapper.cpp
+        COMMAND sed -i "s/length(int flags)/length(int32_t flags)/g"
+            <SOURCE_DIR>/icu4c/source/i18n/number_types.h
+            <SOURCE_DIR>/icu4c/source/i18n/number_mapper.cpp
+        COMMAND sed -i "s/getString(int flags)/getString(int32_t flags)/g"
+            <SOURCE_DIR>/icu4c/source/i18n/number_types.h
+            <SOURCE_DIR>/icu4c/source/i18n/number_mapper.cpp
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${ICU_ENV}
             <SOURCE_DIR>/icu4c/source/configure --enable-static --disable-shared
             --disable-tests --disable-samples --disable-icuio --disable-extras ${ICU_ADDITIONAL_OPTS}
-        BUILD_COMMAND make
+        BUILD_COMMAND make -j1
         INSTALL_COMMAND ""
     )
     ExternalProject_Get_Property(icu SOURCE_DIR BINARY_DIR)
@@ -284,8 +439,8 @@ if ((BUILD_COMPONENTS_TESTS OR BUILD_OPENCS_TESTS OR BUILD_OPENMW_TESTS) AND NOT
 
     include(FetchContent)
     FetchContent_Declare(googletest
-        URL https://github.com/google/googletest/archive/refs/tags/v1.17.0.zip
-        URL_HASH SHA512=2712d6f6e7f38eb0c8d5ebba957588c70aff68ea433c7aa0b31bde8cacfbe47de908a6e5a99a021969da568f5075daa2c45fca602bbf56711d146d333b76562b
+        URL https://github.com/google/googletest/archive/refs/tags/release-1.12.1.zip
+        URL_HASH SHA512=1479ea2f3172c622c0ca305f5b2bc45a42941221ec0ac7865e6d6d020ec4d008d952fc64e01a4c5138d7bed4148cf75596f25bb9e9044a98bbbf5662053ea11c
         SOURCE_DIR fetched/googletest
     )
     if (MSVC)

@@ -111,14 +111,23 @@ namespace SceneUtil
     ShadowManager::ShadowManager(osg::ref_ptr<osg::Group> sceneRoot, osg::ref_ptr<osg::Group> rootNode,
         unsigned int outdoorShadowCastingMask, unsigned int indoorShadowCastingMask, unsigned int worldMask,
         const Settings::ShadowsCategory& settings, Shader::ShaderManager& shaderManager)
+#if defined(__vita__) || defined(__3DS__)
+        : mOutdoorShadowCastingMask(outdoorShadowCastingMask)
+#else
         : mShadowedScene(new osgShadow::ShadowedScene)
         , mShadowTechnique(new MWShadowTechnique)
         , mOutdoorShadowCastingMask(outdoorShadowCastingMask)
+#endif
         , mIndoorShadowCastingMask(indoorShadowCastingMask)
     {
         if (sInstance)
             throw std::logic_error("A ShadowManager already exists");
 
+#if defined(__vita__) || defined(__3DS__)
+        // Vita: bypass osgShadow entirely (ABI mismatch + saves memory).
+        rootNode->addChild(sceneRoot);
+        mEnableShadows = false;
+#else
         mShadowedScene->setShadowTechnique(mShadowTechnique);
 
         if (Stereo::getStereo())
@@ -135,6 +144,7 @@ namespace SceneUtil
         mShadowTechnique->setWorldMask(worldMask);
 
         enableOutdoorMode();
+#endif
 
         sInstance = this;
     }
@@ -198,6 +208,9 @@ namespace SceneUtil
 
     void ShadowManager::enableIndoorMode(const Settings::ShadowsCategory& settings)
     {
+#if defined(__vita__) || defined(__3DS__)
+        return;
+#endif
         if (settings.mEnableIndoorShadows)
             mShadowSettings->setCastsShadowTraversalMask(mIndoorShadowCastingMask);
         else
@@ -206,6 +219,9 @@ namespace SceneUtil
 
     void ShadowManager::enableOutdoorMode()
     {
+#if defined(__vita__) || defined(__3DS__)
+        return;
+#endif
         if (mEnableShadows)
             mShadowTechnique->enableShadows();
         mShadowSettings->setCastsShadowTraversalMask(mOutdoorShadowCastingMask);

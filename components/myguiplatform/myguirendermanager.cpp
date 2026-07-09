@@ -89,6 +89,17 @@ namespace MyGUIPlatform
         {
             osg::State* state = renderInfo.getState();
 
+#if defined(__vita__) || defined(__3DS__)
+            // Ensure FFP mode is active: the 3D scene may have left a custom shader
+            // program bound (VitaLit/VitaTerrain). vitaGL uses separate vertex attribute
+            // arrays for FFP (ffp_vertex_attrib_config) vs custom shaders
+            // (vertex_attrib_config). Without this reset, MyGUI's glVertexPointer() etc.
+            // populate FFP arrays but the draw reads from the stale shader arrays.
+            glUseProgram(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+#endif
+
             state->pushStateSet(mStateSet);
             state->apply();
 
@@ -178,6 +189,7 @@ namespace MyGUIPlatform
             setUpdateCallback(frameUpdate);
 
             mStateSet = new osg::StateSet;
+            mStateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
             mStateSet->setTextureMode(0, GL_TEXTURE_2D, osg::StateAttribute::ON);
             mStateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
             mStateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
@@ -187,6 +199,12 @@ namespace MyGUIPlatform
             mDummyTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
             mDummyTexture->setInternalFormat(GL_RGB);
             mDummyTexture->setTextureSize(1, 1);
+
+            // need to flip tex coords since MyGUI uses DirectX convention of top left image origin
+            osg::Matrix flipMat;
+            flipMat.preMultTranslate(osg::Vec3f(0, 1, 0));
+            flipMat.preMultScale(osg::Vec3f(1, -1, 1));
+            mStateSet->setTextureAttribute(0, new osg::TexMat(flipMat), osg::StateAttribute::ON);
         }
         Drawable(const Drawable& copy, const osg::CopyOp& copyop = osg::CopyOp::SHALLOW_COPY)
             : osg::Drawable(copy, copyop)

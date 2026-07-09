@@ -387,11 +387,6 @@ CSMDoc::Document& CSVRender::WorldspaceWidget::getDocument()
     return mDocument;
 }
 
-const CSMDoc::Document& CSVRender::WorldspaceWidget::getDocument() const
-{
-    return mDocument;
-}
-
 template <typename Tag>
 std::optional<CSVRender::WorldspaceHitResult> CSVRender::WorldspaceWidget::checkTag(
     const osgUtil::LineSegmentIntersector::Intersection& intersection) const

@@ -104,6 +104,46 @@ void WindowBase::center()
     mMainWidget->setCoord(coord);
 }
 
+void WindowBase::setActiveControllerWindow(bool active)
+{
+    mActiveControllerWindow = active;
+#if defined(__vita__) || defined(__3DS__)
+    if (active)
+    {
+        MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+        if (!wm)
+            return;
+        // Inventory-tabs and controller-buttons overlays are equal height, so
+        // split the reserved space evenly when both are active (GM_Inventory),
+        // else attribute it all to the bottom.
+        const int viewHeight = MyGUI::RenderManager::getInstance().getViewSize().height;
+        const int reserved = viewHeight - wm->getControllerMenuHeight();
+        const int reservedTop = (wm->getMode() == GM_Inventory) ? (reserved / 2) : 0;
+        const int safeBottom = viewHeight - (reserved - reservedTop);
+
+        MyGUI::IntCoord coord = mMainWidget->getCoord();
+        bool changed = false;
+
+        // If the window extends past the bottom overlay, push it up.
+        if (coord.top + coord.height > safeBottom)
+        {
+            coord.top = safeBottom - coord.height;
+            changed = true;
+        }
+        // If after that the window is above the top overlay, shrink it to fit.
+        if (coord.top < reservedTop)
+        {
+            const int overshoot = reservedTop - coord.top;
+            coord.top = reservedTop;
+            coord.height = std::max(0, coord.height - overshoot);
+            changed = true;
+        }
+        if (changed)
+            mMainWidget->setCoord(coord);
+    }
+#endif
+}
+
 void WindowBase::clampWindowCoordinates(MyGUI::Window* window)
 {
     MyGUI::IntSize viewSize = MyGUI::RenderManager::getInstance().getViewSize();

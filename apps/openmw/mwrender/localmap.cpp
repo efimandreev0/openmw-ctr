@@ -4,6 +4,7 @@
 
 #include <osg/ComputeBoundsVisitor>
 #include <osg/Fog>
+#include <osg/LightModel>
 #include <osg/LightSource>
 #include <osg/PolygonMode>
 #include <osg/Texture2D>
@@ -609,8 +610,12 @@ namespace MWRender
     void LocalMap::MapSegment::initFogOfWar()
     {
         mFogOfWarImage = new osg::Image;
+#if !defined(__vita__) && !defined(__3DS__)
         // Assign a PixelBufferObject for asynchronous transfer of data to the GPU
+        // vitaGL doesn't support GL_PIXEL_UNPACK_BUFFER — glBindBuffer silently fails,
+        // causing OSG to pass a PBO offset (0) as raw pixels pointer to glTexSubImage2D.
         mFogOfWarImage->setPixelBufferObject(new osg::PixelBufferObject);
+#endif
         mFogOfWarImage->allocateImage(sFogOfWarResolution, sFogOfWarResolution, 1, GL_RGBA, GL_UNSIGNED_BYTE);
         assert(mFogOfWarImage->isDataContiguous());
         std::vector<uint32_t> data;
@@ -658,6 +663,13 @@ namespace MWRender
     {
         if (!mFogOfWarImage)
             return;
+
+#if defined(__vita__) || defined(__3DS__)
+        // libpng's internal mallocs intermittently abort under heap pressure;
+        // OSG's writer crashes inside the encoder. Skip persistence — fog
+        // regenerates as the player explores on next session.
+        return;
+#endif
 
         std::ostringstream ostream;
 
@@ -713,7 +725,13 @@ namespace MWRender
         SceneUtil::setCameraClearDepth(camera);
         camera->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
         camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF_INHERIT_VIEWPOINT);
+#if defined(__vita__) || defined(__3DS__)
+        // PIXEL_BUFFER_RTT requires GLX/WGL pbuffers — not available on Vita.
+        // FBO-only avoids OSG silently falling through to the broken backend.
+        camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+#else
         camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
+#endif
         camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 1.f));
         camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         camera->setRenderOrder(osg::Camera::PRE_RENDER);
@@ -746,22 +764,40 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("far", 10000000.0f));
         stateset->addUniform(new osg::Uniform("skyBlendingStart", 8000000.0f));
         stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f{ 1, 1 }));
+#if defined(__vita__) || defined(__3DS__)
+        // VitaLit reads u_fogStart/u_fogEnd; dynamic fog shrinks them to ~1500
+        // for the main scene, which would fog out the entire top-down view.
+        stateset->addUniform(
+            new osg::Uniform("u_fogStart", 10000000.0f), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        stateset->addUniform(
+            new osg::Uniform("u_fogEnd", 10000000.0f), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+#endif
+
+        osg::ref_ptr<osg::LightModel> lightmodel = new osg::LightModel;
+        lightmodel->setAmbientIntensity(osg::Vec4(0.3f, 0.3f, 0.3f, 1.f));
+        stateset->setAttributeAndModes(lightmodel, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
 
         osg::ref_ptr<osg::Light> light = new osg::Light;
         light->setPosition(osg::Vec4(-0.3f, -0.3f, 0.7f, 0.f));
         light->setDiffuse(osg::Vec4(0.7f, 0.7f, 0.7f, 1.f));
-        light->setAmbient(osg::Vec4(0.3f, 0.3f, 0.3f, 1.f));
+        light->setAmbient(osg::Vec4(0, 0, 0, 1));
         light->setSpecular(osg::Vec4(0, 0, 0, 0));
         light->setLightNum(0);
         light->setConstantAttenuation(1.f);
         light->setLinearAttenuation(0.f);
         light->setQuadraticAttenuation(0.f);
 
+        osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource;
+        lightSource->setLight(light);
+
+        lightSource->setStateSetModes(*stateset, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+
         SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*stateset);
 
         // override sun for local map
-        SceneUtil::configureStateSetSunOverride(light, stateset);
+        SceneUtil::configureStateSetSunOverride(static_cast<SceneUtil::LightManager*>(mSceneRoot), light, stateset);
 
+        camera->addChild(lightSource);
         camera->addChild(mSceneRoot);
     }
 

@@ -95,9 +95,14 @@ namespace MWScript
 
                 for (const auto& dialogue : dialogues)
                 {
+                    // NOTE: readInfos(), not mInfoOrder.getOrderedInfo() or
+                    // mInfo directly. It serves the same records in the same
+                    // order; on handhelds the in-RAM copies are baked away to
+                    // save ~9MB (see esm3/infoorder.hpp and esm3/ctrinfoblob.hpp).
                     if (dialogue.mType == ESM::Dialogue::Type::Journal)
                     {
-                        for (const auto& journalInfo : dialogue.mInfoOrder.getOrderedInfo())
+                        const auto infos = dialogue.readInfos();
+                        for (const auto& journalInfo : infos)
                         {
                             if (journalInfo.mQuestStatus != ESM::DialInfo::QS_Name)
                                 journal->addEntry(dialogue.mId, journalInfo.mData.mJournalIndex, playerPtr);
@@ -105,7 +110,8 @@ namespace MWScript
                     }
                     else if (dialogue.mType == ESM::Dialogue::Type::Topic)
                     {
-                        for (const auto& topicInfo : dialogue.mInfoOrder.getOrderedInfo())
+                        const auto infos = dialogue.readInfos();
+                        for (const auto& topicInfo : infos)
                         {
                             journal->addTopic(dialogue.mId, topicInfo.mId, playerPtr);
                         }

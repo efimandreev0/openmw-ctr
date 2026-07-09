@@ -18,6 +18,12 @@
 #include "interpretercontext.hpp"
 #include "ref.hpp"
 
+#ifdef __3DS__
+#include "../vita/VitaInit.h"
+
+#include <cstdio>
+#endif
+
 namespace MWScript
 {
     namespace Sound
@@ -40,6 +46,15 @@ namespace MWScript
                 runtime.pop();
 
                 MWBase::Environment::get().getSoundManager()->say(ptr, Misc::ResourceHelpers::correctSoundPath(file));
+#ifdef __3DS__
+                {
+                    char buf[192];
+                    snprintf(buf, sizeof(buf), "[Say] actor='%s' file='%.96s' sub=%d",
+                        ptr.getCellRef().getRefId().toDebugString().c_str(),
+                        std::string(file.value()).c_str(), Settings::gui().mSubtitles ? 1 : 0);
+                    Vita::breadcrumb(buf);
+                }
+#endif
 
                 if (Settings::gui().mSubtitles)
                     context.messageBox(text);
@@ -54,7 +69,26 @@ namespace MWScript
             {
                 MWWorld::Ptr ptr = R()(runtime);
 
-                runtime.push(MWBase::Environment::get().getSoundManager()->sayDone(ptr));
+                const bool done = MWBase::Environment::get().getSoundManager()->sayDone(ptr);
+#ifdef __3DS__
+                {
+                    // Polled every frame by the chargen state machines —
+                    // heavy throttle, but transitions always log.
+                    static int s_calls = 0;
+                    static bool s_lastDone = true;
+                    if (done != s_lastDone || (++s_calls & 0x1FF) == 1)
+                    {
+                        s_lastDone = done;
+                        char buf[128];
+                        snprintf(buf, sizeof(buf), "[SayDone] actor='%s' done=%d",
+                            ptr.getCellRef().getRefId().toDebugString().c_str(), done ? 1 : 0);
+                        Vita::breadcrumb(buf);
+                    }
+                }
+                runtime.push(done);
+#else
+                runtime.push(done);
+#endif
             }
         };
 

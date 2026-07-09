@@ -85,7 +85,7 @@ namespace MWGui
         bool isGamepadCursorAllowed() { return !mDisableGamepadCursor; }
         virtual bool onControllerButtonEvent(const SDL_ControllerButtonEvent& arg) { return true; }
         virtual bool onControllerThumbstickEvent(const SDL_ControllerAxisEvent& arg) { return false; }
-        virtual void setActiveControllerWindow(bool active) { mActiveControllerWindow = active; }
+        virtual void setActiveControllerWindow(bool active);
 
     protected:
         virtual void onTitleDoubleClicked();

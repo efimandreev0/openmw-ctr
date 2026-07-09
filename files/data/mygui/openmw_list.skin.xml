@@ -162,8 +162,8 @@
             <UserString key="SkinLine" value="MW_ListLine"/>
             <Widget type="Widget" skin="BlackBG" position="0 0 516 516" align="Stretch" />
             <Widget type="Widget" skin="MW_Box" position="0 0 516 516" align="Stretch" />
-            <Widget type="ScrollBar" skin="MW_VScroll" position="498 3 14 509" align="Right VStretch" name="VScroll" />
-            <Widget type="Widget" skin="" position="3 3 493 509" align="Stretch" name="Client" />
+            <Widget type="ScrollBar" skin="MW_VScroll" position="498 3 14 501" align="Right VStretch" name="VScroll" />
+            <Widget type="Widget" skin="" position="3 3 493 501" align="Stretch" name="Client" />
         </Widget>
     </Resource>
 
@@ -173,8 +173,8 @@
             <UserString key="SkinLine" value="MW_ListLine"/>
             <Widget type="Widget" skin="FullBlackBG" position="0 0 516 516" align="Stretch" />
             <Widget type="Widget" skin="MW_Box" position="0 0 516 516" align="Stretch" />
-            <Widget type="ScrollBar" skin="MW_VScroll" position="498 3 14 509" align="Right VStretch" name="VScroll" />
-            <Widget type="Widget" skin="" position="3 3 493 509" align="Stretch" name="Client" />
+            <Widget type="ScrollBar" skin="MW_VScroll" position="498 3 14 501" align="Right VStretch" name="VScroll" />
+            <Widget type="Widget" skin="" position="3 3 493 501" align="Stretch" name="Client" />
         </Widget>
     </Resource>
 

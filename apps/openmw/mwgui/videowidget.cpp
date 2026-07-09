@@ -31,7 +31,11 @@ namespace MWGui
 
     void VideoWidget::playVideo(const std::string& video)
     {
+#if !defined(__vita__) && !defined(__3DS__)
+        // Vita: ffmpeg's binkaudio_rdft avcodec_open2 returns -1 for Morrowind's .bik files
+        // and gives no log output. Skip audio to let the video play silently.
         mPlayer->setAudioFactory(new MWSound::MovieAudioFactory());
+#endif
 
         Files::IStreamPtr videoStream;
         try
@@ -53,8 +57,7 @@ namespace MWGui
         mTexture = std::make_unique<MyGUIPlatform::OSGTexture>(texture);
 
         setRenderItemTexture(mTexture.get());
-        // Both the widget and the video frame are Y-down, so this UV is not inverted
-        getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+        getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
     }
 
     int VideoWidget::getVideoWidth()
@@ -70,11 +73,6 @@ namespace MWGui
     bool VideoWidget::update()
     {
         return mPlayer->update();
-    }
-
-    void VideoWidget::commitFrame()
-    {
-        mPlayer->commitFrame();
     }
 
     void VideoWidget::stop()

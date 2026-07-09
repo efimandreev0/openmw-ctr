@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <bitset>
 #include <cassert>
+#if !defined(__vita__) && !defined(__3DS__)
 #include <format>
+#endif
 #include <sstream>
 
 #include <components/esm3/esmreader.hpp>
@@ -16,15 +18,14 @@ namespace LuaUtil
 
     namespace
     {
-        const std::map<std::string_view, ESM::LuaScriptCfg::Flags, std::less<>> flagsByName{
+        const std::map<std::string, ESM::LuaScriptCfg::Flags, std::less<>> flagsByName{
             { "GLOBAL", ESM::LuaScriptCfg::sGlobal },
             { "CUSTOM", ESM::LuaScriptCfg::sCustom },
             { "PLAYER", ESM::LuaScriptCfg::sPlayer },
             { "MENU", ESM::LuaScriptCfg::sMenu },
-            { "LOAD", ESM::LuaScriptCfg::sLoad },
         };
 
-        const std::map<std::string_view, ESM::RecNameInts, std::less<>> typeTagsByName{
+        const std::map<std::string, ESM::RecNameInts, std::less<>> typeTagsByName{
             { "ACTIVATOR", ESM::REC_ACTI },
             { "ARMOR", ESM::REC_ARMO },
             { "BOOK", ESM::REC_BOOK },
@@ -243,13 +244,22 @@ namespace LuaUtil
                 line = line.substr(0, line.size() - 1);
 
             if (!Misc::StringUtils::ciEndsWith(line, ".lua"))
+#if defined(__vita__) || defined(__3DS__)
+                throw std::runtime_error(
+                    std::string("Lua script should have suffix '.lua', got: ") + std::string(line.substr(0, 300)));
+#else
                 throw std::runtime_error(
                     std::format("Lua script should have suffix '.lua', got: {}", line.substr(0, 300)));
+#endif
 
             // Split tags and script path
             size_t semicolonPos = line.find(':');
             if (semicolonPos == std::string_view::npos)
+#if defined(__vita__) || defined(__3DS__)
+                throw std::runtime_error(std::string("No flags found in: ") + std::string(line));
+#else
                 throw std::runtime_error(std::format("No flags found in: {}", line));
+#endif
             std::string_view tagsStr = line.substr(0, semicolonPos);
             std::string_view scriptPath = line.substr(semicolonPos + 1);
             while (!scriptPath.empty() && isSpace(scriptPath[0]))
@@ -278,7 +288,11 @@ namespace LuaUtil
                 else if (typesIt != typeTagsByName.end())
                     script.mTypes.push_back(typesIt->second);
                 else
+#if defined(__vita__) || defined(__3DS__)
+                    throw std::runtime_error(std::string("Unknown tag '") + std::string(tagName) + "' in: " + std::string(line));
+#else
                     throw std::runtime_error(std::format("Unknown tag '{}' in: {}", tagName, line));
+#endif
             }
         }
     }

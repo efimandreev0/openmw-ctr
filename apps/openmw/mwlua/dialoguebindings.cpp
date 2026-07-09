@@ -98,16 +98,17 @@ namespace
         recordBindingsClass["name"]
             = sol::readonly_property([](const ESM::Dialogue& rec) -> std::string_view { return rec.mStringId; });
         recordBindingsClass["questName"]
-            = sol::readonly_property([](const ESM::Dialogue& rec) -> sol::optional<std::string_view> {
+            = sol::readonly_property([](const ESM::Dialogue& rec) -> sol::optional<std::string> {
                   if (rec.mType != ESM::Dialogue::Type::Journal)
                   {
                       return sol::nullopt;
                   }
-                  for (const auto& mwDialogueInfo : rec.mInfo)
+                  const auto infos = rec.readInfos();
+                  for (const auto& mwDialogueInfo : infos)
                   {
                       if (mwDialogueInfo.mQuestStatus == ESM::DialInfo::QuestStatus::QS_Name)
                       {
-                          return sol::optional<std::string_view>(mwDialogueInfo.mResponse);
+                          return sol::optional<std::string>(mwDialogueInfo.getResponse());
                       }
                   }
                   return sol::nullopt;
@@ -121,11 +122,27 @@ namespace
         auto recordInfosBindingsClass = lua.new_usertype<DialogueInfos>("ESM3_Dialogue_Infos");
         recordInfosBindingsClass[sol::meta_function::to_string] = [](const DialogueInfos& store) {
             const ESM::Dialogue& dialogueRecord = store.parentDialogueRecord;
-            return "{" + std::to_string(dialogueRecord.mInfo.size()) + " ESM3_Dialogue["
+            return "{" + std::to_string(dialogueRecord.readInfos().size()) + " ESM3_Dialogue["
                 + dialogueRecord.mId.toDebugString() + "] info elements}";
         };
         recordInfosBindingsClass[sol::meta_function::length]
-            = [](const DialogueInfos& store) { return store.parentDialogueRecord.mInfo.size(); };
+            = [](const DialogueInfos& store) { return store.parentDialogueRecord.readInfos().size(); };
+#ifdef __3DS__
+        // The info list is rematerialized on demand — hand Lua a COPY, not a
+        // pointer into an LRU-owned list (Lua userdata can outlive it).
+        recordInfosBindingsClass[sol::meta_function::index]
+            = [](const DialogueInfos& store, size_t index) -> sol::optional<ESM::DialInfo> {
+            const ESM::Dialogue& dialogueRecord = store.parentDialogueRecord;
+            const auto infos = dialogueRecord.readInfos();
+            if (index == 0 || index > infos.size())
+            {
+                return sol::nullopt;
+            }
+            auto iter = infos.begin();
+            std::advance(iter, LuaUtil::fromLuaIndex(index));
+            return *iter;
+        };
+#else
         recordInfosBindingsClass[sol::meta_function::index]
             = [](const DialogueInfos& store, size_t index) -> const ESM::DialInfo* {
             const ESM::Dialogue& dialogueRecord = store.parentDialogueRecord;
@@ -137,6 +154,7 @@ namespace
             std::advance(iter, LuaUtil::fromLuaIndex(index));
             return &(*iter);
         };
+#endif
         recordInfosBindingsClass[sol::meta_function::ipairs] = lua["ipairsForArray"].template get<sol::function>();
         recordInfosBindingsClass[sol::meta_function::pairs] = lua["ipairsForArray"].template get<sol::function>();
     }
@@ -150,7 +168,7 @@ namespace
         recordInfoBindingsClass["id"]
             = sol::readonly_property([](const ESM::DialInfo& rec) { return rec.mId.serializeText(); });
         recordInfoBindingsClass["text"]
-            = sol::readonly_property([](const ESM::DialInfo& rec) -> std::string_view { return rec.mResponse; });
+            = sol::readonly_property([](const ESM::DialInfo& rec) -> std::string { return rec.getResponse(); });
         recordInfoBindingsClass["questStage"]
             = sol::readonly_property([](const ESM::DialInfo& rec) -> sol::optional<int> {
                   if (rec.mData.mType != ESM::Dialogue::Type::Journal)
@@ -276,12 +294,12 @@ namespace
                   return Misc::ResourceHelpers::correctSoundPath(VFS::Path::Normalized(rec.mSound)).value();
               });
         recordInfoBindingsClass["resultScript"]
-            = sol::readonly_property([](const ESM::DialInfo& rec) -> sol::optional<std::string_view> {
-                  if (rec.mResultScript.empty())
+            = sol::readonly_property([](const ESM::DialInfo& rec) -> sol::optional<std::string> {
+                  if (!rec.hasResultScript())
                   {
                       return sol::nullopt;
                   }
-                  return sol::optional<std::string_view>(rec.mResultScript);
+                  return sol::optional<std::string>(rec.getResultScript());
               });
         recordInfoBindingsClass["conditions"]
             = sol::readonly_property([lua = lua.lua_state()](const ESM::DialInfo& rec) -> sol::object {

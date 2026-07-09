@@ -3,6 +3,7 @@
 #include <osg/Geometry>
 #include <osg/Group>
 #include <osg/Image>
+#include <osg/TexEnvCombine>
 #include <osg/Texture2D>
 
 #include <osgDB/WriteFile>
@@ -98,6 +99,10 @@ namespace
 
     std::vector<char> writePng(const osg::Image& overlayImage)
     {
+#if defined(__vita__) || defined(__3DS__)
+        // libpng aborts under heap pressure; skip overlay persistence on Vita.
+        return std::vector<char>();
+#endif
         std::ostringstream ostream;
         osgDB::ReaderWriter* readerwriter = osgDB::Registry::instance()->getReaderWriterForExtension("png");
         if (!readerwriter)
@@ -286,10 +291,14 @@ namespace MWRender
         mWidth = cellSize * (mMaxX - mMinX + 1);
         mHeight = cellSize * (mMaxY - mMinY + 1);
 
-        // Load color LUT texture
+        // Load color LUT texture. skipNswCache: the LUT's PIXELS are read on
+        // the CPU below — the 3DS .nsw cache serves a 64-byte GPU stub with
+        // POT-inflated dimensions (256x1 -> 256x8), which both garbles the
+        // colors and trips the dimension check.
         constexpr VFS::Path::NormalizedView colorLutPath("textures/omw_map_color_palette.dds");
         auto resourceSystem = MWBase::Environment::get().getResourceSystem();
-        osg::ref_ptr<osg::Image> colorLut = resourceSystem->getImageManager()->getImage(colorLutPath);
+        osg::ref_ptr<osg::Image> colorLut
+            = resourceSystem->getImageManager()->getImage(colorLutPath, /*disableFlip=*/false, /*skipNswCache=*/true);
 
         // Validate LUT dimensions
         if (!colorLut || colorLut->s() != 256 || colorLut->t() != 1)
@@ -300,7 +309,14 @@ namespace MWRender
 
         mWorkItem = new CreateMapWorkItem(
             mWidth, mHeight, mMinX, mMinY, mMaxX, mMaxY, cellSize, esmStore.get<ESM::Land>(), colorLut);
+#ifdef __3DS__
+        // Run synchronously: a busy work-queue thread racing the main thread
+        // during boot produced non-deterministic hangs (initUI freezing on
+        // random windows). Boot is serial on 3DS anyway; determinism wins.
+        mWorkItem->doWork();
+#else
         mWorkQueue->addWorkItem(mWorkItem);
+#endif
     }
 
     void GlobalMap::worldPosToImageSpace(float x, float z, float& imageX, float& imageY)
@@ -364,6 +380,7 @@ namespace MWRender
             osg::StateSet* stateset = geom->getOrCreateStateSet();
             stateset->setAttribute(depth);
             stateset->setTextureAttributeAndModes(0, texture, osg::StateAttribute::ON);
+            stateset->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
             stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 
             if (mAlphaTexture)
@@ -381,6 +398,10 @@ namespace MWRender
                 geom->setTexCoordArray(1, texcoords, osg::Array::BIND_PER_VERTEX);
 
                 stateset->setTextureAttributeAndModes(1, mAlphaTexture, osg::StateAttribute::ON);
+                osg::ref_ptr<osg::TexEnvCombine> texEnvCombine = new osg::TexEnvCombine;
+                texEnvCombine->setCombine_RGB(osg::TexEnvCombine::REPLACE);
+                texEnvCombine->setSource0_RGB(osg::TexEnvCombine::PREVIOUS);
+                stateset->setTextureAttributeAndModes(1, texEnvCombine);
             }
 
             camera->addChild(geom);
@@ -413,6 +434,16 @@ namespace MWRender
     void GlobalMap::clear()
     {
         ensureLoaded();
+
+#if defined(__vita__) || defined(__3DS__)
+        // On Vita, render() is deferred. If clear() is called before render()
+        // (e.g. during loadGame → cleanup), mOverlayImage is still null.
+        if (!mOverlayImage)
+        {
+            mPendingImageDest.clear();
+            return;
+        }
+#endif
 
         memset(mOverlayImage->data(), 0, mOverlayImage->getTotalSizeInBytes());
 
@@ -462,7 +493,35 @@ namespace MWRender
 
     void GlobalMap::read(ESM::GlobalMap& map)
     {
+#if defined(__vita__) || defined(__3DS__)
+        // Vita: run map render synchronously (avoids PTE condition_variable crash).
+        if (mWorkItem)
+        {
+            mWorkItem->doWork();
+            mOverlayImage = mWorkItem->mOverlayImage;
+            mBaseTexture = mWorkItem->mBaseTexture;
+            mAlphaTexture = mWorkItem->mAlphaTexture;
+            mOverlayTexture = mWorkItem->mOverlayTexture;
+            requestOverlayTextureUpdate(0, 0, mWidth, mHeight, osg::ref_ptr<osg::Texture2D>(), true, false);
+            mWorkItem = nullptr;
+        }
+        else if (!mOverlayTexture)
+        {
+            render();
+            if (mWorkItem)
+            {
+                mWorkItem->doWork();
+                mOverlayImage = mWorkItem->mOverlayImage;
+                mBaseTexture = mWorkItem->mBaseTexture;
+                mAlphaTexture = mWorkItem->mAlphaTexture;
+                mOverlayTexture = mWorkItem->mOverlayTexture;
+                requestOverlayTextureUpdate(0, 0, mWidth, mHeight, osg::ref_ptr<osg::Texture2D>(), true, false);
+                mWorkItem = nullptr;
+            }
+        }
+#else
         ensureLoaded();
+#endif
 
         const ESM::GlobalMap::Bounds& bounds = map.mBounds;
 

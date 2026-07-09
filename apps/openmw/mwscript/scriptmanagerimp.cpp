@@ -77,6 +77,19 @@ namespace MWScript
             {
                 mScripts.emplace(name, CompiledScript(mParser.getProgram(), mParser.getLocals()));
 
+#if defined(__vita__) || defined(__3DS__)
+                // Free the script source string after a successful compile.
+                // mScriptText is only read from compile() (this function) and
+                // the slow path of getLocals(); once mScripts holds the compiled
+                // program + locals, neither will hit mScriptText again for this
+                // script. Vanilla Morrowind ships ~3000 scripts averaging
+                // ~500 bytes; heavy mod loads can push this to 10-30 MB.
+                // The cast is safe: grep confirms scriptmanagerimp.cpp is the
+                // sole reader. Vita-only — desktop has no comparable pressure.
+                const_cast<ESM::Script*>(script)->mScriptText.clear();
+                const_cast<ESM::Script*>(script)->mScriptText.shrink_to_fit();
+#endif
+
                 return true;
             }
         }

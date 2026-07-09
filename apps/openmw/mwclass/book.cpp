@@ -100,7 +100,7 @@ namespace MWClass
     {
         const MWWorld::LiveCellRef<ESM::Book>* ref = ptr.get<ESM::Book>();
 
-        return ref->mBase->mIcon.getOriginal();
+        return ref->mBase->mIcon;
     }
 
     MWGui::ToolTipInfo Book::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
@@ -110,7 +110,7 @@ namespace MWClass
         MWGui::ToolTipInfo info;
         std::string_view name = getName(ptr);
         info.caption = MyGUI::TextIterator::toTagsString(MyGUI::UString(name)) + MWGui::ToolTips::getCountString(count);
-        info.icon = ref->mBase->mIcon.getOriginal();
+        info.icon = ref->mBase->mIcon;
 
         std::string text;
 

@@ -5,6 +5,7 @@
 
 #include <components/sceneutil/workqueue.hpp>
 
+#include <osg/Vec3f>
 #include <osg/ref_ptr>
 
 #include <map>
@@ -51,7 +52,11 @@ namespace MWWorld
 
         /// Ask a background thread to preload rendering meshes and collision shapes for objects in this cell.
         /// @note The cell itself must be in State_Loaded or State_Preloaded.
-        void preload(MWWorld::CellStore& cell, double timestamp);
+        void preload(MWWorld::CellStore& cell, double timestamp, bool urgent = false);
+
+#if defined(__vita__) || defined(__3DS__)
+        void setPlayerContext(const osg::Vec3f& pos, const osg::Vec3f& forwardDir);
+#endif
 
         void notifyLoaded(MWWorld::CellStore* cell);
 
@@ -133,6 +138,15 @@ namespace MWWorld
         std::size_t mAdded = 0;
         std::size_t mExpired = 0;
         std::size_t mLoaded = 0;
+
+#if defined(__vita__) || defined(__3DS__)
+        osg::Vec3f mPlayerPos;
+        osg::Vec3f mForwardDir;
+        bool mHasPlayerContext = false;
+
+        float getCellDistanceSq(const MWWorld::CellStore* cell) const;
+        bool isRearHemisphere(const MWWorld::CellStore* cell) const;
+#endif
     };
 
 }

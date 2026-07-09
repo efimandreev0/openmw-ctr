@@ -1,9 +1,8 @@
 #include "loadcont.hpp"
 
+#include "components/esm/defs.hpp"
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
-
-#include <components/esm/defs.hpp>
 
 namespace ESM
 {
@@ -99,7 +98,7 @@ namespace ESM
             return;
         }
 
-        esm.writeHNCString("MODL", mModel.getOriginal());
+        esm.writeHNCString("MODL", mModel);
         esm.writeHNOCString("FNAM", mName);
         esm.writeHNT("CNDT", mWeight);
         esm.writeHNT("FLAG", mFlags);

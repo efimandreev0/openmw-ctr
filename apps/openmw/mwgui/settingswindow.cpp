@@ -10,6 +10,7 @@
 #include <MyGUI_ScrollBar.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_TabControl.h>
+#include <MyGUI_TabItem.h>
 #include <MyGUI_UString.h>
 #include <MyGUI_Window.h>
 
@@ -60,6 +61,26 @@ namespace
 
         Log(Debug::Warning) << "Warning: Invalid texture filtering options: " << mipFilter << ", " << magFilter;
         return "#{OMWEngine:TextureFilteringOther}";
+    }
+
+    MyGUI::UString lightingMethodToStr(SceneUtil::LightingMethod method)
+    {
+        std::string_view result;
+        switch (method)
+        {
+            case SceneUtil::LightingMethod::FFP:
+                result = "#{OMWEngine:LightingMethodLegacy}";
+                break;
+            case SceneUtil::LightingMethod::PerObjectUniform:
+                result = "#{OMWEngine:LightingMethodShadersCompatibility}";
+                break;
+            case SceneUtil::LightingMethod::SingleUBO:
+            default:
+                result = "#{OMWEngine:LightingMethodShaders}";
+                break;
+        }
+
+        return MyGUI::LanguageManager::getInstance().replaceTags(MyGUI::UString(result));
     }
 
     bool sortResolutions(std::pair<int, int> left, std::pair<int, int> right)
@@ -241,6 +262,86 @@ namespace MWGui
 
         configureWidgets(mMainWidget, true);
 
+#if defined(__vita__) || defined(__3DS__)
+        hideIrrelevantVitaWidgets();
+        updateVitaViewDistVisibility();
+
+        // Target-fps dropdown: pick current index from setting, wire change handler.
+        try
+        {
+            getWidget(mVitaDynFogTargetFpsList, "VitaDynFogTargetFpsList");
+            if (mVitaDynFogTargetFpsList)
+            {
+                const float current = Settings::camera().mVitaDynFogTargetFps.get();
+                size_t idx = 2; // default to "20"
+                if (current < 16.5f)      idx = 0;  // 15
+                else if (current < 19.f)  idx = 1;  // 18
+                else                      idx = 2;  // 20
+                mVitaDynFogTargetFpsList->setIndexSelected(idx);
+                mVitaDynFogTargetFpsList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogTargetFpsChanged);
+            }
+
+            // Fog aggression dropdown: pick current index from setting string
+            getWidget(mVitaDynFogAggressionList, "VitaDynFogAggressionList");
+            if (mVitaDynFogAggressionList)
+            {
+                const std::string& current = Settings::camera().mVitaDynFogAggression.get();
+                size_t idx = 1; // default to "Aggressive"
+                if (current == "normal")               idx = 0;
+                else if (current == "very aggressive") idx = 2;
+                else                                   idx = 1;
+                mVitaDynFogAggressionList->setIndexSelected(idx);
+                mVitaDynFogAggressionList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogAggressionChanged);
+            }
+
+            // Cell cache dropdown (1/2)
+            getWidget(mVitaCellCacheList, "VitaCellCacheList");
+            if (mVitaCellCacheList)
+            {
+                const int current = Settings::cells().mPreloadCellCacheMax.get();
+                size_t idx = std::clamp(current, 1, 2) - 1;
+                mVitaCellCacheList->setIndexSelected(idx);
+                mVitaCellCacheList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaCellCacheChanged);
+            }
+
+            // Render resolution dropdown: maps the (X, Y) cfg pair to the
+            // nearest preset. Width is the distinguishing axis. Capped at
+            // 640x368 — see comment in onVitaResolutionChanged.
+            getWidget(mVitaResolutionList, "VitaResolutionList");
+            if (mVitaResolutionList)
+            {
+                const int curX = Settings::video().mResolutionX.get();
+                size_t idx = 1; // 512x288 default
+                if (curX <= 480) idx = 0;
+                else if (curX <= 512) idx = 1;
+                else idx = 2;
+                mVitaResolutionList->setIndexSelected(idx);
+                mVitaResolutionList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaResolutionChanged);
+            }
+
+            // Texture detail dropdown (performance/balanced/high/off)
+            getWidget(mVitaTextureDetailList, "VitaTextureDetailList");
+            if (mVitaTextureDetailList)
+            {
+                const std::string& current = Settings::general().mVitaTextureDetail.get();
+                size_t idx = 0; // performance
+                if (current == "balanced") idx = 1;
+                else if (current == "high") idx = 2;
+                else if (current == "off") idx = 3;
+                mVitaTextureDetailList->setIndexSelected(idx);
+                mVitaTextureDetailList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaTextureDetailChanged);
+            }
+        }
+        catch (...)
+        {
+        }
+#endif
+
         setTitle("#{OMWEngine:SettingsWindow}");
 
         getWidget(mSettingsTab, "SettingsTab");
@@ -264,7 +365,7 @@ namespace MWGui
         getWidget(mSecondaryLanguage, "SecondaryLanguage");
         getWidget(mGmstOverridesL10n, "GmstOverridesL10nButton");
         getWidget(mWindowModeHint, "WindowModeHint");
-        getWidget(mClusteredLightingButton, "ClusteredLightingButton");
+        getWidget(mLightingMethodButton, "LightingMethodButton");
         getWidget(mLightsResetButton, "LightsResetButton");
         getWidget(mMaxLights, "MaxLights");
         getWidget(mScriptFilter, "ScriptFilter");
@@ -273,9 +374,6 @@ namespace MWGui
         getWidget(mScriptView, "ScriptView");
         getWidget(mScriptAdapter, "ScriptAdapter");
         getWidget(mScriptDisabled, "ScriptDisabled");
-        getWidget(mClassicFalloffWidget, "ClassicFalloffWidget");
-        getWidget(mMinimumBrightnessText, "MinimumBrightnessText");
-        getWidget(mMinimumBrightnessScroll, "MinimumBrightnessScroll");
 
 #ifndef WIN32
         // hide gamma controls since it currently does not work under Linux
@@ -309,6 +407,8 @@ namespace MWGui
         mWaterRainRippleDetail->eventComboChangePosition
             += MyGUI::newDelegate(this, &SettingsWindow::onWaterRainRippleDetailChanged);
 
+        mLightingMethodButton->eventComboChangePosition
+            += MyGUI::newDelegate(this, &SettingsWindow::onLightingMethodButtonChanged);
         mLightsResetButton->eventMouseButtonClick
             += MyGUI::newDelegate(this, &SettingsWindow::onLightsResetButtonClicked);
         mMaxLights->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onMaxLightsChanged);
@@ -450,6 +550,9 @@ namespace MWGui
     void SettingsWindow::onTabChanged(MyGUI::TabControl* /*sender*/, size_t /*index*/)
     {
         resetScrollbars();
+#if defined(__vita__) || defined(__3DS__)
+        updateVitaViewDistVisibility();
+#endif
     }
 
     void SettingsWindow::onOkButtonClicked(MyGUI::Widget* /*sender*/)
@@ -538,6 +641,21 @@ namespace MWGui
         apply();
     }
 
+    void SettingsWindow::onLightingMethodButtonChanged(MyGUI::ComboBox* sender, size_t pos)
+    {
+        if (pos == MyGUI::ITEM_NONE)
+            return;
+
+        sender->setCaptionWithReplacing(sender->getItemNameAt(sender->getIndexSelected()));
+
+        MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
+            "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
+
+        Settings::shaders().mLightingMethod.set(
+            Settings::parseLightingMethod(*sender->getItemDataAt<std::string>(pos)));
+        apply();
+    }
+
     void SettingsWindow::onLanguageChanged(size_t langPriority, MyGUI::ComboBox* sender, size_t pos)
     {
         if (pos == MyGUI::ITEM_NONE)
@@ -620,15 +738,17 @@ namespace MWGui
 
         Settings::shaders().mForcePerPixelLighting.reset();
         Settings::shaders().mClassicFalloff.reset();
-        Settings::shaders().mClampLighting.reset();
         Settings::shaders().mMatchSunlightToSun.reset();
-        Settings::shaders().mLightRadiusMultiplier.reset();
+        Settings::shaders().mLightBoundsMultiplier.reset();
         Settings::shaders().mMaximumLightDistance.reset();
         Settings::shaders().mLightFadeStart.reset();
         Settings::shaders().mMinimumInteriorBrightness.reset();
         Settings::shaders().mMaxLights.reset();
-        Settings::shaders().mClusteredLighting.reset();
+        Settings::shaders().mLightingMethod.reset();
 
+        const SceneUtil::LightingMethod lightingMethod = Settings::shaders().mLightingMethod;
+        const std::size_t lightIndex = mLightingMethodButton->findItemIndexWith(lightingMethodToStr(lightingMethod));
+        mLightingMethodButton->setIndexSelected(lightIndex);
         updateMaxLightsComboBox(mMaxLights);
 
         apply();
@@ -655,9 +775,74 @@ namespace MWGui
         {
             Settings::get<bool>(getSettingCategory(sender), getSettingName(sender)).set(newState);
             apply();
+#if defined(__vita__) || defined(__3DS__)
+            if (getSettingCategory(sender) == "Camera"
+                && getSettingName(sender) == "vita dynamic fog")
+                updateVitaViewDistVisibility();
+#endif
             return;
         }
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    void SettingsWindow::onVitaDynFogTargetFpsChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static constexpr float kValues[] = { 15.f, 18.f, 20.f };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::camera().mVitaDynFogTargetFps.set(kValues[pos]);
+        apply();
+    }
+
+    void SettingsWindow::onVitaDynFogAggressionChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static const char* kValues[] = { "normal", "aggressive", "very aggressive" };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::camera().mVitaDynFogAggression.set(kValues[pos]);
+        apply();
+    }
+
+    void SettingsWindow::onVitaCellCacheChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        const int value = std::clamp(static_cast<int>(pos) + 1, 1, 2);
+        Settings::cells().mPreloadCellCacheMax.set(value);
+        Settings::cells().mPreloadCellCacheMin.set(1);
+        apply();
+    }
+
+    void SettingsWindow::onVitaResolutionChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order. Capped at 640x368 to
+        // match the vglInitWithCustomSizes display backbuffer in
+        // VitaInit.cpp — higher widths produced a black screen in testing
+        // (Vita display controller refuses certain backbuffer geometries).
+        static constexpr int kWidths[]  = { 480, 512, 640 };
+        static constexpr int kHeights[] = { 272, 288, 368 };
+        if (pos >= std::size(kWidths))
+            return;
+        Settings::video().mResolutionX.set(kWidths[pos]);
+        Settings::video().mResolutionY.set(kHeights[pos]);
+        // No apply() — render resolution requires a restart (engine creates
+        // its render FBO once at startup; resizing mid-session is not safe
+        // on vitaGL). The new value persists to user cfg and takes effect
+        // on next boot.
+    }
+
+    void SettingsWindow::onVitaTextureDetailChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static const char* kValues[] = { "performance", "balanced", "high", "off" };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::general().mVitaTextureDetail.set(kValues[pos]);
+        // No apply() — texture downsample happens at image-load time
+        // inside ImageManager::getImage. Already-cached textures retain
+        // their old caps. The new preset takes effect on next boot.
+    }
+#endif
 
     void SettingsWindow::onTextureFilteringChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
     {
@@ -745,8 +930,6 @@ namespace MWGui
         MWBase::Environment::get().getInputManager()->processChangedSettings(changed);
         MWBase::Environment::get().getMechanicsManager()->processChangedSettings(changed);
         Settings::Manager::resetPendingChanges();
-
-        updateLightSettings();
     }
 
     void SettingsWindow::onKeyboardSwitchClicked(MyGUI::Widget* /*sender*/)
@@ -816,15 +999,26 @@ namespace MWGui
 
     void SettingsWindow::updateLightSettings()
     {
-        mClusteredLightingButton->setEnabled(
-            MWBase::Environment::get().getResourceSystem()->getSceneManager()->isClusteredLightingSupported());
+        auto lightingMethod = MWBase::Environment::get().getResourceSystem()->getSceneManager()->getLightingMethod();
+        MyGUI::UString lightingMethodStr = lightingMethodToStr(lightingMethod);
 
-        const bool isClustered = Settings::shaders().mClusteredLighting;
-        const bool isClassic = !isClustered && Settings::shaders().mClassicFalloff;
+        mLightingMethodButton->removeAllItems();
 
-        mClassicFalloffWidget->setVisible(!isClustered);
-        mMinimumBrightnessText->setVisible(!isClassic);
-        mMinimumBrightnessScroll->setVisible(!isClassic);
+        std::array<SceneUtil::LightingMethod, 3> methods = {
+            SceneUtil::LightingMethod::FFP,
+            SceneUtil::LightingMethod::PerObjectUniform,
+            SceneUtil::LightingMethod::SingleUBO,
+        };
+
+        for (const auto& method : methods)
+        {
+            if (!MWBase::Environment::get().getResourceSystem()->getSceneManager()->isSupportedLightingMethod(method))
+                continue;
+
+            mLightingMethodButton->addItem(
+                lightingMethodToStr(method), SceneUtil::LightManager::getLightingMethodString(method));
+        }
+        mLightingMethodButton->setIndexSelected(mLightingMethodButton->findItemIndexWith(lightingMethodStr));
     }
 
     void SettingsWindow::updateWindowModeSettings()
@@ -1021,8 +1215,85 @@ namespace MWGui
         updateVSyncModeSettings();
         resetScrollbars();
         renderScriptSettings();
+#if defined(__vita__) || defined(__3DS__)
+        updateVitaViewDistVisibility();
+#endif
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mOkButton);
     }
+
+#if defined(__vita__) || defined(__3DS__)
+    namespace
+    {
+        void setVitaWidgetVisible(const MWGui::Layout& layout, const char* name, bool visible)
+        {
+            try
+            {
+                MyGUI::Widget* w = nullptr;
+                layout.getWidget(w, name);
+                if (w)
+                    w->setVisible(visible);
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    void SettingsWindow::updateVitaViewDistVisibility()
+    {
+        const bool dynFogOn = Settings::camera().mVitaDynamicFog.get();
+        // View-distance slider is meaningful only when dynamic fog is OFF.
+        setVitaWidgetVisible(*this, "VitaViewDistRow", !dynFogOn);
+        setVitaWidgetVisible(*this, "VitaViewDistText", !dynFogOn);
+        setVitaWidgetVisible(*this, "VitaViewDistSlider", !dynFogOn);
+        // Target-fps + aggression dropdowns are meaningful only when dynamic fog is ON.
+        setVitaWidgetVisible(*this, "VitaDynFogTargetFpsRow", dynFogOn);
+        setVitaWidgetVisible(*this, "VitaDynFogAggressionRow", dynFogOn);
+    }
+
+    void SettingsWindow::hideIrrelevantVitaWidgets()
+    {
+        setVitaWidgetVisible(*this, "ResolutionList", false);
+        setVitaWidgetVisible(*this, "WindowModeList", false);
+        setVitaWidgetVisible(*this, "VSyncModeList", false);
+
+        // The Visuals-tab view-distance slider duplicates the Vita-tab one.
+        setVitaWidgetVisible(*this, "RenderDistanceLabel", false);
+        setVitaWidgetVisible(*this, "RenderingDistanceSlider", false);
+        setVitaWidgetVisible(*this, "LargeRenderingDistanceSlider", false);
+        setVitaWidgetVisible(*this, "RenderDistanceLowLabel", false);
+        setVitaWidgetVisible(*this, "RenderDistanceHighLabel", false);
+
+        // Strip Vita-incompatible top-level tabs (Water shaders crash the
+        // renderer; Video controls are PC-only — resolution/windowmode/vsync).
+        try
+        {
+            MyGUI::TabControl* tabs = nullptr;
+            getWidget(tabs, "SettingsTab");
+            if (tabs)
+            {
+                static const std::array<const char*, 2> kTabsToRemove = {
+                    "WaterSettingsTab", "VideoSettingsTab"
+                };
+                for (const char* name : kTabsToRemove)
+                {
+                    for (size_t i = tabs->getItemCount(); i > 0; --i)
+                    {
+                        MyGUI::TabItem* item = tabs->getItemAt(i - 1);
+                        if (item && item->getName() == name)
+                        {
+                            tabs->removeItemAt(i - 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+#endif
 
     void SettingsWindow::onClose()
     {
@@ -1095,5 +1366,6 @@ namespace MWGui
 
         return false;
     }
+
 
 }

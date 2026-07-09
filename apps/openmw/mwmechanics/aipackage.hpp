@@ -64,6 +64,9 @@ namespace MWMechanics
 
         static constexpr Options makeDefaultOptions() { return Options{}; }
 
+        /// Drop the cached PathgridGraphs; recomputed lazily on next pathfind.
+        static void clearPathgridCache();
+
         /// Clones the package
         virtual std::unique_ptr<AiPackage> clone() const = 0;
 

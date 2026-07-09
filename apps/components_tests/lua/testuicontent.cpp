@@ -65,9 +65,7 @@ namespace
             sol["makeContent"] = mNew;
             EXPECT_NO_THROW(sol.safe_script(R"(
                 local content = makeContent({ {}, {} })
-                local ok, value = pcall(function() return content[4] end)
-                assert(ok, 'Out-of-bounds index raised an error')
-                assert(value == nil, 'Out-of-bounds index did not return nil')
+                assert(not pcall(function() content[4] = {} end), 'Allowed to make hole')
                 )"));
         });
     }
