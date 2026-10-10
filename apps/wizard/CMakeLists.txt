@@ -3,15 +3,12 @@ set(WIZARD
     conclusionpage.cpp
     existinginstallationpage.cpp
     importpage.cpp
-    inisettings.cpp
     installationtargetpage.cpp
     intropage.cpp
     languageselectionpage.cpp
     main.cpp
     mainwizard.cpp
     methodselectionpage.cpp
-
-    utils/componentlistwidget.cpp
 )
 
 if(WIN32)
@@ -23,19 +20,26 @@ set(WIZARD_HEADER
     conclusionpage.hpp
     existinginstallationpage.hpp
     importpage.hpp
-    inisettings.hpp
     installationtargetpage.hpp
     intropage.hpp
     languageselectionpage.hpp
     mainwizard.hpp
     methodselectionpage.hpp
-
-    utils/componentlistwidget.hpp
 )
 
 if (OPENMW_USE_UNSHIELD)
-    set (WIZARD ${WIZARD} installationpage.cpp unshield/unshieldworker.cpp)
-    set (WIZARD_HEADER ${WIZARD_HEADER} installationpage.hpp unshield/unshieldworker.hpp)
+    set (WIZARD
+         ${WIZARD}
+         installationpage.cpp
+         unshield/inisettings.cpp
+         unshield/unshieldworker.cpp
+    )
+    set (WIZARD_HEADER
+         ${WIZARD_HEADER}
+         installationpage.hpp
+         unshield/inisettings.hpp
+         unshield/unshieldworker.hpp
+    )
     add_compile_definitions(OPENMW_USE_UNSHIELD)
 endif (OPENMW_USE_UNSHIELD)
 
@@ -59,7 +63,7 @@ if (OPENMW_USE_UNSHIELD)
     include_directories(${LIBUNSHIELD_INCLUDE_DIRS})
 endif()
 
-openmw_add_executable(openmw-wizard
+openmw_add_qt_executable(openmw-wizard
     ${GUI_TYPE}
     ${WIZARD}
     ${WIZARD_HEADER}
@@ -68,32 +72,30 @@ openmw_add_executable(openmw-wizard
 
 add_dependencies(openmw-wizard qm-files)
 
-target_link_libraries(openmw-wizard
+target_link_libraries(openmw-wizard PRIVATE
     components_qt
 )
 
-target_link_libraries(openmw-wizard Qt::Widgets Qt::Core Qt::Svg)
+target_link_libraries(openmw-wizard PRIVATE Qt::Widgets Qt::Core Qt::Svg)
 
 if (OPENMW_USE_UNSHIELD)
-    target_link_libraries(openmw-wizard ${LIBUNSHIELD_LIBRARIES})
+    target_link_libraries(openmw-wizard PRIVATE ${LIBUNSHIELD_LIBRARIES})
 endif()
 
 if (WIN32)
     target_sources(openmw-wizard PRIVATE ${CMAKE_SOURCE_DIR}/files/windows/other-apps.manifest)
 endif()
 
-if(DPKG_PROGRAM)
-    INSTALL(TARGETS openmw-wizard RUNTIME DESTINATION games COMPONENT openmw-wizard)
-endif()
-
 if (BUILD_WITH_CODE_COVERAGE)
     target_compile_options(openmw-wizard PRIVATE --coverage)
-    target_link_libraries(openmw-wizard gcov)
+    target_link_libraries(openmw-wizard PRIVATE gcov)
 endif()
 
-if (WIN32)
-    INSTALL(TARGETS openmw-wizard RUNTIME DESTINATION ".")
-endif(WIN32)
+if (NOT APPLE)
+    install(TARGETS openmw-wizard ${runtime_dependency_arguments})
+
+    generate_deploy_script_for_qt_app(openmw-wizard)
+endif()
 
 if(USE_QT)
     set_property(TARGET openmw-wizard PROPERTY AUTOMOC ON)

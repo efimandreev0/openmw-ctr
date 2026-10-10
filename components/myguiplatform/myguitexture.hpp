@@ -1,6 +1,10 @@
 #ifndef OPENMW_COMPONENTS_MYGUIPLATFORM_MYGUITEXTURE_H
 #define OPENMW_COMPONENTS_MYGUIPLATFORM_MYGUITEXTURE_H
 
+#ifdef __3DS__
+#include "ctr/myguitexture.hpp"
+#else
+
 #include <MyGUI_ITexture.h>
 
 #include <osg/ref_ptr>
@@ -70,5 +74,7 @@ namespace MyGUIPlatform
     };
 
 }
+
+#endif // __3DS__
 
 #endif

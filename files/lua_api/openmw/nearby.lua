@@ -105,7 +105,6 @@
 -- @function [parent=#nearby] castRenderingRay
 -- @param openmw.util#Vector3 from Start point of the ray.
 -- @param openmw.util#Vector3 to End point of the ray.
--- @param #CastRenderingRayOptions options An optional table with additional optional arguments
 -- @return #RayCastingResult
 
 ---
@@ -114,7 +113,6 @@
 -- @param openmw.async#Callback callback The callback to pass the result to (should accept a single argument @{openmw.nearby#RayCastingResult}).
 -- @param openmw.util#Vector3 from Start point of the ray.
 -- @param openmw.util#Vector3 to End point of the ray.
--- @param #CastRenderingRayOptions
 
 ---
 -- @type NAVIGATOR_FLAGS

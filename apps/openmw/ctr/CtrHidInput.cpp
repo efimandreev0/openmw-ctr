@@ -215,8 +215,7 @@ void ctrPumpNativeInput()
     {
         touchPosition tp;
         hidTouchRead(&tp);
-        // 320x240 touch panel onto the 400x240 logical window.
-        const int mx = tp.px * 400 / 320;
+        const int mx = tp.px + (400 - 320) / 2;
         const int my = tp.py;
 
         SDL_Event e{};

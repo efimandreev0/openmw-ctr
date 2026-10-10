@@ -9,12 +9,11 @@
 #include <3ds.h>
 #include <thread>
 
-#include <NovaGL.h>
+#include <components/ctr/gpu/ctrgpu.hpp>
 
 #include <LinearMath/btAlignedAllocator.h>
 
 #include <components/debug/debuglog.hpp>
-#include <components/sceneutil/lightingmethod.hpp>
 #include <components/settings/values.hpp>
 
 #include <algorithm>
@@ -40,41 +39,7 @@ extern "C" {
 // in the RSF must match). OpenMW parses deep NIF/ESM recursion — 2MB.
 u32 __stacksize__ = 2 * 1024 * 1024;
 
-// Heap split: NovaGL allocates textures/VBOs from the linear heap (PICA DMA
-// requires physically-linear memory). Morrowind's texture working set is the
-// dominant GPU-side consumer, but malloc (ESM store, cells) is even hungrier:
-// with a ~35MB static image, 24MB linear leaves the rest of application
-// memory (N3DS Dev1: 178MB) to malloc — the ESM store needs every megabyte.
-// 30MB linear: the first world frame streams non-interleaved OSG geometry
-// through NovaGL's vertex ring (PICA needs interleaved verts, so every draw
-// re-gathers on the CPU) — the ring adaptively grows to ~16MB. 24MB linear
-// could not fit that next to the 3MB command buffer and textures. This is a
-// stopgap until NovaGL caches interleaved conversions per VBO; the malloc
-// arena shrinks to ~117MB, right at the in-game usage line (watchdog holds).
-// NOTE: 21MB crashed pre-main once (unexplained) — if 30MB does the same,
-// revert to 24 and shrink the ring cap instead.
-// 24MB (the proven split). The vertex ring is PRE-SIZED at init instead of
-// grown mid-frame: the growth ladder parks each outgrown buffer in a GC (the
-// GPU may still read it), so reaching a 16MB ring transiently needs
-// 2+4+8+16+cmdbuf = 33MB — more linear than exists. Pre-allocating one
-// 12MB ring (K=1) avoids the ladder entirely and gives the arena back.
-// 14MB since the retail-124MB budget: the zero-copy multistream path draws
-// world geometry straight from linear VBOs, so the client/index rings only
-// carry MyGUI/particles — cmdbuf 3 + client 1.5 + index 0.5 + staging 0.25
-// leaves ~5MB for textures (Prison Ship peaks at ~4MB of linear textures).
-//
-// 28MB (dev-178 profile): 16MB starved the OPEN WORLD — walking Seyda Neen
-// ran linear down to a few hundred BYTES free, every fresh VBO/texture alloc
-// failed (invisible geometry, flat terrain patches, texture holes). The
-// NovaGL infra (cmdbuf + rings x2 slots + framebuffers) eats ~10.5MB, so 16
-// left only ~5MB of content budget.
-//
-// 24MB since the NSW texture cache (halved 565 textures with mips) cut the
-// texture linear footprint several-fold: exterior play used ~17MB of 28 with
-// 11MB spare, while the HEAP hit its ceiling instead (OOM at 117MB with the
-// 9-cell exterior grid resident). Every MB shaved off linear is a MB of heap
-// window: 24 puts the heap cap at ~123MB.
-u32 __ctru_linear_heap_size = 24 * 1024 * 1024;
+u32 __ctru_linear_heap_size = 16 * 1024 * 1024;
 
 // Our replacement for libctru's weak __system_allocateHeaps. The stock
 // auto-size grabs ALL remaining APPLICATION memory for the heap; in the
@@ -106,6 +71,9 @@ void __system_allocateHeaps(void)
     svcCloseHandle(reslimit);
 
     u32 remaining = (u32)(maxCommit - currentCommit) & ~0xFFF;
+
+    if (remaining >= 80u * 1024u * 1024u)
+        __ctru_linear_heap_size = 25 * 1024 * 1024;
 
     if (__ctru_linear_heap_size > remaining)
         svcBreak(USERBREAK_PANIC);
@@ -217,6 +185,37 @@ int sqlite3_os_end(void)
 
 } // extern "C"
 
+#include <sys/iosupport.h>
+
+namespace
+{
+    ssize_t discardWrite(struct _reent*, void*, const char*, size_t len)
+    {
+        return static_cast<ssize_t>(len);
+    }
+
+    const devoptab_t sDiscardOutput = { .name = "discard", .structSize = 0, .write_r = &discardWrite };
+}
+
+extern "C" void ctrDetachConsole(void)
+{
+    fflush(stdout);
+    fflush(stderr);
+    devoptab_list[STD_OUT] = &sDiscardOutput;
+    devoptab_list[STD_ERR] = &sDiscardOutput;
+}
+
+#ifndef OPENMW_CTR_BUILD_STAMP
+#define OPENMW_CTR_BUILD_STAMP __DATE__ " " __TIME__
+#endif
+
+extern "C" void ctr_checked_free(void* ptr, void* caller);
+extern "C" void* ctr_malloc_from(std::size_t size, void* caller);
+extern "C" void ctr_diag_open(void);
+extern "C" void ctr_diag_write(const char* text);
+extern "C" void* volatile g_ctrMallocCaller;
+extern "C" void* volatile g_ctrFreeCaller;
+
 // Sized global operator new: newlib's sbrk allocator has no mmap path, so a
 // single large request needs that much CONTIGUOUS arena. When boot OOMs with
 // megabytes "free", the culprit is one big allocation — log its size so the
@@ -236,7 +235,7 @@ void* operator new(std::size_t size)
             fclose(f);
         }
     }
-    void* p = malloc(size);
+    void* p = ctr_malloc_from(size, __builtin_return_address(0));
     if (!p)
     {
         FILE* f = fopen("sdmc:/3ds/openmw/boot.log", "ab");
@@ -275,22 +274,22 @@ void* operator new[](std::size_t size)
 
 void operator delete(void* p) noexcept
 {
-    free(p);
+    ctr_checked_free(p, __builtin_return_address(0));
 }
 
 void operator delete[](void* p) noexcept
 {
-    free(p);
+    ctr_checked_free(p, __builtin_return_address(0));
 }
 
 void operator delete(void* p, std::size_t) noexcept
 {
-    free(p);
+    ctr_checked_free(p, __builtin_return_address(0));
 }
 
 void operator delete[](void* p, std::size_t) noexcept
 {
-    free(p);
+    ctr_checked_free(p, __builtin_return_address(0));
 }
 
 namespace Vita
@@ -648,6 +647,7 @@ namespace Vita
         mkdir("sdmc:/3ds/openmw/data", 0777);
         mkdir("sdmc:/3ds/openmw/saves", 0777);
         mkdir("sdmc:/3ds/openmw/cache", 0777);
+        mkdir("sdmc:/3ds/openmw/prebuilt", 0777); // textures.ctp, sounds.ctp from apps/ctrprep
         mkdir("sdmc:/3ds/openmw/screenshots", 0777);
         mkdir("sdmc:/3ds/openmw/mods", 0777);
         mkdir("sdmc:/3ds/openmw/Data Files", 0777);
@@ -691,6 +691,8 @@ namespace Vita
         rename("sdmc:/3ds/openmw/debug.log", "sdmc:/3ds/openmw/debug.log.prev");
 
         breadcrumb("BOOT: Ctr initialize() start");
+        breadcrumb("BOOT: build " OPENMW_CTR_BUILD_STAMP);
+        ctr_diag_open();
 
         setenv("TMPDIR", "sdmc:/3ds/openmw/cache", 1);
         setenv("HOME", "sdmc:/3ds/openmw", 1);
@@ -793,73 +795,14 @@ namespace Vita
         breadcrumb(s_emergencyReserve ? "BOOT: emergency reserve allocated"
                                       : "BOOT: WARNING - emergency reserve allocation failed");
 
-        // NovaGL init — before SDL so the video subsystem never touches GL.
-        // gfxInitDefault is NovaGL's expected precondition (see examples).
-        gfxInitDefault();
-        // Boot console on the bottom screen: the ESM parse takes minutes on
-        // real hardware with nothing on screen — every breadcrumb below is
-        // mirrored here until the first world frame (see vitaBreadcrumb).
-        // consoleInit switches the bottom screen to single-buffered text and
-        // never touches the top screen NovaGL renders to.
+        gfxInit(GSP_BGR8_OES, GSP_RGB565_OES, false);
+        gfxSet3D(false);
         consoleInit(GFX_BOTTOM, nullptr);
         printf("OpenMW 3DS boot\n");
-        // Frame buffering: K=2 doubles EVERY ring slot (cmdbuf+client+index+
-        // staging ≈ 5.75MB -> 11.5MB of linear). That fit while the GUI art
-        // was (incorrectly) served halved by the .nsw cache; with GUI
-        // textures decoding at full size the double rings starved linear to
-        // ZERO on the chargen race menu — glBufferData failed (free=640B),
-        // VBOs stayed empty and geometry vanished in patches ("holes" in the
-        // ship hull). K=1 hands ~5.75MB back to textures/geometry. The
-        // 14.7-FPS K=1 measurement predates the zero-copy VBO path — most
-        // world geometry no longer flows through the client ring, so the
-        // serialization cost is far smaller today (re-measure before
-        // flipping back; sdmc:/3ds/openmw/k2.flag re-enables 2 for A/B).
-        {
-            int frameBuffers = 1;
-            if (FILE* k2 = fopen("sdmc:/3ds/openmw/k2.flag", "rb"))
-            {
-                fclose(k2);
-                frameBuffers = 2;
-                breadcrumb("k2.flag: double frame buffering (K=2)");
-            }
-            novaSetFrameBuffers(frameBuffers);
-        }
-        // cmdbuf 3MB (a full FFP world frame of commands). Client/index
-        // rings shrink to 4MB/1MB: the multistream zero-copy path draws
-        // VBO-backed geometry directly from linear memory, so the rings only
-        // carry MyGUI/particles/lines (plus adaptive growth as a safety
-        // net). Frees ~9MB of linear for textures.
-        // cmdbuf 3 + client 3 + index 0.5 + staging 0.25 = 6.75MB of the
-        // 16MB linear heap. The 1.5MB client ring wedged renderTrav the
-        // moment a GUI scene came up: MyGUI draws through the client ring,
-        // its growth path needs free linear, and the interior had left only
-        // ~1MB — the stall loop then waits forever. 3MB covers GUI scenes
-        // without growth; adaptive growth stays as the safety net.
-        // client 2MB: 3MB left the interior only 72KB of linear (wedged the
-        // first world frame); 1.5MB wedged GUI scenes. 2MB + growth safety
-        // net until the ETC1 preprocessor shrinks textures 4x.
-        nova_init_ex(3 * 1024 * 1024, 2 * 1024 * 1024, 512 * 1024, 256 * 1024);
-        // Pre-swizzled texture cache (scripts/ctr/preprocess_textures_nsw.py
-        // output): imagemanager checks it before touching any DDS.
-        nova_texture_cache_set_directory("sdmc:/3ds/openmw/cache/tex");
-        // Diagnostic: sdmc:/3ds/openmw/noearlyz.flag disables PICA early
-        // depth — prime suspect for the "black wedge / geometry bleeding
-        // through when pitching the camera" reports.
-        if (FILE* ez = fopen("sdmc:/3ds/openmw/noearlyz.flag", "rb"))
-        {
-            fclose(ez);
-            novaSetEarlyZEnabled(0);
-            breadcrumb("noearlyz.flag: PICA early depth DISABLED");
-        }
-        // Free-run: OpenMW advances simulation by measured dt, so the VBlank
-        // wait at swap only quantizes fps to 60/N (measured: a hard 14.7).
-        novaSetSwapInterval(0);
-        // nova_init() enables stereoscopic 3D unconditionally; OpenMW renders a
-        // single eye, so the second buffer is garbage — on interlaced output
-        // (Citra "Interlaced" 3D mode, or HW with the slider up) the screen
-        // shows alternating stripes of image and trash. Force 2D.
-        gfxSet3D(false);
-        breadcrumb("BOOT: NovaGL initialized");
+        if (!CtrGpu::init())
+            breadcrumb("BOOT: ERROR - citro3d initialisation failed");
+        else
+            breadcrumb("BOOT: citro3d initialized");
 
         char initBuf[128];
         snprintf(initBuf, sizeof(initBuf), "CTR Platform Initialized: linear=%uMB free, heap=%uKB free",
@@ -885,10 +828,10 @@ namespace Vita
                     if (cur > 0 && cur == lastSeen)
                     {
                         ++stuckTicks;
-                        char hb[128];
-                        snprintf(hb, sizeof(hb), "[HANG] frame=%d stuck=%ds beacon=%s", cur, stuckTicks * 5,
-                            (const char*)g_ctrBeacon);
-                        breadcrumb(hb);
+                        char hb[200];
+                        snprintf(hb, sizeof(hb), "[HANG] frame=%d stuck=%ds beacon=%s in_malloc=%p in_free=%p\n",
+                            cur, stuckTicks * 5, (const char*)g_ctrBeacon, g_ctrMallocCaller, g_ctrFreeCaller);
+                        ctr_diag_write(hb);
                     }
                     else
                         stuckTicks = 0;
@@ -910,8 +853,6 @@ namespace Vita
         Settings::video().mFramerateLimit.set(30.0f);
 
         // --- Shaders: FFP only (NovaGL is a fixed-function GLES1.1 layer) ---
-        Settings::shaders().mLightingMethod.set(SceneUtil::LightingMethod::FFP);
-        Settings::shaders().mForceShaders.set(false);
         Settings::shaders().mForcePerPixelLighting.set(false);
         Settings::shaders().mAutoUseObjectNormalMaps.set(false);
         Settings::shaders().mAutoUseObjectSpecularMaps.set(false);
@@ -941,8 +882,7 @@ namespace Vita
         Settings::fog().mExponentialFog.set(false);
         Settings::fog().mSkyBlending.set(false);
 
-        // --- Physics: async, one worker ---
-        Settings::physics().mAsyncNumThreads.set(1);
+        Settings::physics().mAsyncNumThreads.set(0);
 
         // --- Cells ---
         // Preloader off: its per-frame door/position scans cost measurable
@@ -985,31 +925,139 @@ namespace Vita
         Settings::groundcover().mEnabled.set(false);
         Settings::stereo().mStereoEnabled.set(false);
 
-        // --- Windows: 4-quadrant layout (same proportions as Vita) ---
-        Settings::windows().mStatsX.set(0.015f);
-        Settings::windows().mStatsY.set(0.075f);
-        Settings::windows().mStatsW.set(0.475f);
-        Settings::windows().mStatsH.set(0.42f);
-        Settings::windows().mMapX.set(0.51f);
-        Settings::windows().mMapY.set(0.075f);
-        Settings::windows().mMapW.set(0.475f);
-        Settings::windows().mMapH.set(0.42f);
-        Settings::windows().mInventoryX.set(0.015f);
-        Settings::windows().mInventoryY.set(0.505f);
-        Settings::windows().mInventoryW.set(0.475f);
-        Settings::windows().mInventoryH.set(0.42f);
-        Settings::windows().mSpellsX.set(0.51f);
-        Settings::windows().mSpellsY.set(0.505f);
-        Settings::windows().mSpellsW.set(0.475f);
-        Settings::windows().mSpellsH.set(0.42f);
-        Settings::windows().mDialogueX.set(0.015f);
-        Settings::windows().mDialogueY.set(0.025f);
-        Settings::windows().mDialogueW.set(0.97f);
-        Settings::windows().mDialogueH.set(0.88f);
-        Settings::windows().mSettingsX.set(0.015f);
-        Settings::windows().mSettingsY.set(0.025f);
-        Settings::windows().mSettingsW.set(0.97f);
-        Settings::windows().mSettingsH.set(0.88f);
+        {
+            auto& w = Settings::windows();
+            w.mMapPin.set(true);
+            w.mMapHidden.set(false);
+            w.mStatsX.set(0.1f);
+            w.mStatsY.set(0.f);
+            w.mStatsW.set(0.8f);
+            w.mStatsH.set(1.f);
+            w.mStatsMaximizedX.set(0.1f);
+            w.mStatsMaximizedY.set(0.f);
+            w.mStatsMaximizedW.set(0.8f);
+            w.mStatsMaximizedH.set(1.f);
+            w.mSpellsX.set(0.1f);
+            w.mSpellsY.set(0.f);
+            w.mSpellsW.set(0.8f);
+            w.mSpellsH.set(1.f);
+            w.mSpellsMaximizedX.set(0.1f);
+            w.mSpellsMaximizedY.set(0.f);
+            w.mSpellsMaximizedW.set(0.8f);
+            w.mSpellsMaximizedH.set(1.f);
+            w.mMapX.set(0.1f);
+            w.mMapY.set(0.f);
+            w.mMapW.set(0.8f);
+            w.mMapH.set(1.f);
+            w.mMapMaximizedX.set(0.1f);
+            w.mMapMaximizedY.set(0.f);
+            w.mMapMaximizedW.set(0.8f);
+            w.mMapMaximizedH.set(1.f);
+            w.mInventoryX.set(0.1f);
+            w.mInventoryY.set(0.f);
+            w.mInventoryW.set(0.8f);
+            w.mInventoryH.set(1.f);
+            w.mInventoryMaximizedX.set(0.1f);
+            w.mInventoryMaximizedY.set(0.f);
+            w.mInventoryMaximizedW.set(0.8f);
+            w.mInventoryMaximizedH.set(1.f);
+            w.mInventoryContainerX.set(0.1f);
+            w.mInventoryContainerY.set(0.5f);
+            w.mInventoryContainerW.set(0.8f);
+            w.mInventoryContainerH.set(0.5f);
+            w.mInventoryContainerMaximizedX.set(0.1f);
+            w.mInventoryContainerMaximizedY.set(0.f);
+            w.mInventoryContainerMaximizedW.set(0.8f);
+            w.mInventoryContainerMaximizedH.set(1.f);
+            w.mInventoryBarterX.set(0.1f);
+            w.mInventoryBarterY.set(0.5f);
+            w.mInventoryBarterW.set(0.8f);
+            w.mInventoryBarterH.set(0.5f);
+            w.mInventoryBarterMaximizedX.set(0.1f);
+            w.mInventoryBarterMaximizedY.set(0.f);
+            w.mInventoryBarterMaximizedW.set(0.8f);
+            w.mInventoryBarterMaximizedH.set(1.f);
+            w.mInventoryCompanionX.set(0.1f);
+            w.mInventoryCompanionY.set(0.5f);
+            w.mInventoryCompanionW.set(0.8f);
+            w.mInventoryCompanionH.set(0.5f);
+            w.mInventoryCompanionMaximizedX.set(0.1f);
+            w.mInventoryCompanionMaximizedY.set(0.f);
+            w.mInventoryCompanionMaximizedW.set(0.8f);
+            w.mInventoryCompanionMaximizedH.set(1.f);
+            w.mDialogueX.set(0.1f);
+            w.mDialogueY.set(0.f);
+            w.mDialogueW.set(0.8f);
+            w.mDialogueH.set(1.f);
+            w.mDialogueMaximizedX.set(0.1f);
+            w.mDialogueMaximizedY.set(0.f);
+            w.mDialogueMaximizedW.set(0.8f);
+            w.mDialogueMaximizedH.set(1.f);
+            w.mAlchemyX.set(0.1f);
+            w.mAlchemyY.set(0.f);
+            w.mAlchemyW.set(0.8f);
+            w.mAlchemyH.set(1.f);
+            w.mAlchemyMaximizedX.set(0.1f);
+            w.mAlchemyMaximizedY.set(0.f);
+            w.mAlchemyMaximizedW.set(0.8f);
+            w.mAlchemyMaximizedH.set(1.f);
+            w.mConsoleX.set(0.1f);
+            w.mConsoleY.set(0.f);
+            w.mConsoleW.set(0.8f);
+            w.mConsoleH.set(1.f);
+            w.mConsoleMaximizedX.set(0.1f);
+            w.mConsoleMaximizedY.set(0.f);
+            w.mConsoleMaximizedW.set(0.8f);
+            w.mConsoleMaximizedH.set(1.f);
+            w.mContainerX.set(0.1f);
+            w.mContainerY.set(0.f);
+            w.mContainerW.set(0.8f);
+            w.mContainerH.set(0.5f);
+            w.mContainerMaximizedX.set(0.1f);
+            w.mContainerMaximizedY.set(0.f);
+            w.mContainerMaximizedW.set(0.8f);
+            w.mContainerMaximizedH.set(1.f);
+            w.mBarterX.set(0.1f);
+            w.mBarterY.set(0.f);
+            w.mBarterW.set(0.8f);
+            w.mBarterH.set(0.5f);
+            w.mBarterMaximizedX.set(0.1f);
+            w.mBarterMaximizedY.set(0.f);
+            w.mBarterMaximizedW.set(0.8f);
+            w.mBarterMaximizedH.set(1.f);
+            w.mCompanionX.set(0.1f);
+            w.mCompanionY.set(0.f);
+            w.mCompanionW.set(0.8f);
+            w.mCompanionH.set(0.5f);
+            w.mCompanionMaximizedX.set(0.1f);
+            w.mCompanionMaximizedY.set(0.f);
+            w.mCompanionMaximizedW.set(0.8f);
+            w.mCompanionMaximizedH.set(1.f);
+            w.mSettingsX.set(0.1f);
+            w.mSettingsY.set(0.f);
+            w.mSettingsW.set(0.8f);
+            w.mSettingsH.set(1.f);
+            w.mSettingsMaximizedX.set(0.1f);
+            w.mSettingsMaximizedY.set(0.f);
+            w.mSettingsMaximizedW.set(0.8f);
+            w.mSettingsMaximizedH.set(1.f);
+            w.mPostprocessorX.set(0.1f);
+            w.mPostprocessorY.set(0.f);
+            w.mPostprocessorW.set(0.8f);
+            w.mPostprocessorH.set(1.f);
+            w.mPostprocessorMaximizedX.set(0.1f);
+            w.mPostprocessorMaximizedY.set(0.f);
+            w.mPostprocessorMaximizedW.set(0.8f);
+            w.mPostprocessorMaximizedH.set(1.f);
+            w.mDebugX.set(0.1f);
+            w.mDebugY.set(0.f);
+            w.mDebugW.set(0.8f);
+            w.mDebugH.set(1.f);
+            w.mDebugMaximizedX.set(0.1f);
+            w.mDebugMaximizedY.set(0.f);
+            w.mDebugMaximizedW.set(0.8f);
+            w.mDebugMaximizedH.set(1.f);
+        }
 
         debugLog("3DS platform defaults applied.");
         logMemoryStatus("Post-defaults");

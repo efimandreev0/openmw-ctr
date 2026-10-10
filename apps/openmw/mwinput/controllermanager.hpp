@@ -68,6 +68,8 @@ namespace MWInput
         bool mGuiCursorEnabled;
         bool mJoystickLastUsed;
         bool mGamepadMousePressed;
+        bool mLeftTriggerGuiPressed;
+        bool mRightTriggerGuiPressed;
 #if defined(__vita__) || defined(__3DS__)
         bool mSelectHeld = false;
         bool mSelectUsedAsModifier = false;

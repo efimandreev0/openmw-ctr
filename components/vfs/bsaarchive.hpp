@@ -5,8 +5,10 @@
 #include "file.hpp"
 #include "pathutil.hpp"
 
+#ifndef OPENMW_CTR_NATIVE
 #include <components/bsa/ba2dx10file.hpp>
 #include <components/bsa/ba2gnrlfile.hpp>
+#endif
 #include <components/bsa/bsafile.hpp>
 #include <components/bsa/compressedbsafile.hpp>
 
@@ -191,10 +193,12 @@ namespace VFS
                 return std::make_unique<BsaArchive<Bsa::BSAFile>>(path, encoder);
             case Bsa::BsaVersion::Compressed:
                 return std::make_unique<BsaArchive<Bsa::CompressedBSAFile>>(path, encoder);
+#ifndef OPENMW_CTR_NATIVE
             case Bsa::BsaVersion::BA2GNRL:
                 return std::make_unique<BsaArchive<Bsa::BA2GNRLFile>>(path, encoder);
             case Bsa::BsaVersion::BA2DX10:
                 return std::make_unique<BsaArchive<Bsa::BA2DX10File>>(path, encoder);
+#endif
         }
 
         throw std::runtime_error("Unknown archive type '" + Files::pathToUnicodeString(path) + "'");

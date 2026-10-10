@@ -5,14 +5,48 @@
 #include "esmreader.hpp"
 #include "esmwriter.hpp"
 
+#include <components/esm3/loadskil.hpp>
 #include <components/misc/concepts.hpp>
 
 namespace ESM
 {
-    template <Misc::SameAsWithoutCvref<Book::BKDTstruct> T>
+    namespace
+    {
+        struct EsmBKDTstruct
+        {
+            float mWeight;
+            int32_t mValue, mIsScroll, mSkillId, mEnchant;
+        };
+
+        void toBinary(const Book::BKDTstruct& src, EsmBKDTstruct& dst)
+        {
+            dst.mWeight = src.mWeight;
+            dst.mValue = src.mValue;
+            dst.mIsScroll = src.mIsScroll;
+            dst.mSkillId = ESM::Skill::refIdToIndex(src.mSkillId);
+            dst.mEnchant = src.mEnchant;
+        }
+
+        void fromBinary(const EsmBKDTstruct& src, Book::BKDTstruct& dst)
+        {
+            dst.mWeight = src.mWeight;
+            dst.mValue = src.mValue;
+            dst.mIsScroll = src.mIsScroll;
+            dst.mSkillId = ESM::Skill::indexToRefId(src.mSkillId);
+            dst.mEnchant = src.mEnchant;
+        }
+    }
+
+    template <Misc::SameAsWithoutCvref<EsmBKDTstruct> T>
     void decompose(T&& v, const auto& f)
     {
         f(v.mWeight, v.mValue, v.mIsScroll, v.mSkillId, v.mEnchant);
+    }
+
+    template <Misc::SameAsWithoutCvref<Book::BKDTstruct> T>
+    void decompose(T&& v, const auto& f)
+    {
+        f(v.mWeight, v.mValue, v.mIsScroll, v.mEnchant);
     }
 
     void Book::load(ESMReader& esm, bool& isDeleted)
@@ -38,9 +72,21 @@ namespace ESM
                     mName = esm.getHString();
                     break;
                 case fourCC("BKDT"):
-                    esm.getSubComposite(mData);
+                {
+                    if (esm.getFormatVersion() <= MaxFixedStatsFormatVersion)
+                    {
+                        EsmBKDTstruct data;
+                        esm.getSubComposite(data);
+                        fromBinary(data, mData);
+                    }
+                    else
+                    {
+                        esm.getSubComposite(mData);
+                        mData.mSkillId = esm.getHNORefId("SKIL");
+                    }
                     hasData = true;
                     break;
+                }
                 case fourCC("SCRI"):
                     mScript = esm.getRefId();
                     break;
@@ -82,12 +128,22 @@ namespace ESM
             return;
         }
 
-        esm.writeHNCString("MODL", mModel);
+        esm.writeHNCString("MODL", mModel.getOriginal());
         esm.writeHNOCString("FNAM", mName);
-        esm.writeNamedComposite("BKDT", mData);
+        if (esm.getFormatVersion() <= MaxFixedStatsFormatVersion)
+        {
+            EsmBKDTstruct data;
+            toBinary(mData, data);
+            esm.writeNamedComposite("BKDT", data);
+        }
+        else
+        {
+            esm.writeNamedComposite("BKDT", mData);
+            esm.writeHNORefId("SKIL", mData.mSkillId);
+        }
         esm.writeHNOCRefId("SCRI", mScript);
-        esm.writeHNOCString("ITEX", mIcon);
-        esm.writeHNOString("TEXT", mText);
+        esm.writeHNOCString("ITEX", mIcon.getOriginal());
+        esm.writeHNOString("TEXT", getText());
         esm.writeHNOCRefId("ENAM", mEnchant);
     }
 
@@ -104,7 +160,7 @@ namespace ESM
         mData.mWeight = 0;
         mData.mValue = 0;
         mData.mIsScroll = 0;
-        mData.mSkillId = 0;
+        mData.mSkillId = {};
         mData.mEnchant = 0;
         mName.clear();
         mModel.clear();

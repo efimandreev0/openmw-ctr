@@ -2,7 +2,9 @@
 #include <components/fallback/fallback.hpp>
 #include <components/fallback/validate.hpp>
 #include <components/files/configurationmanager.hpp>
+#ifndef OPENMW_CTR_NATIVE
 #include <components/misc/osgpluginchecker.hpp>
+#endif
 #include <components/misc/rng.hpp>
 #include <components/platform/platform.hpp>
 #include <components/version/version.hpp>
@@ -277,6 +279,7 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
     return true;
 }
 
+#ifndef OPENMW_CTR_NATIVE
 namespace
 {
     class OSGLogHandler : public osg::NotifyHandler
@@ -324,6 +327,7 @@ namespace
         }
     };
 }
+#endif
 
 int runApplication(int argc, char* argv[])
 {
@@ -341,7 +345,9 @@ int runApplication(int argc, char* argv[])
     Vita::breadcrumb("Platform::init() done");
 #endif
 
+#ifndef OPENMW_CTR_NATIVE
     osg::setNotifyHandler(new OSGLogHandler());
+#endif
     Files::ConfigurationManager cfgMgr;
 
 #if defined(__vita__) || defined(__3DS__)
@@ -363,8 +369,10 @@ int runApplication(int argc, char* argv[])
         engine->setForceRescan(Vita::isSelectHeld());
         Vita::breadcrumb("parseOptions() done, starting engine");
 #endif
+#ifndef OPENMW_CTR_NATIVE
         if (!Misc::checkRequiredOSGPluginsArePresent())
             return 1;
+#endif
 
         engine->go();
     }

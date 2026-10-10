@@ -3,13 +3,22 @@
 #include <algorithm>
 #include <map>
 #include <numeric>
+#include <set>
 #include <sstream>
+#include <unordered_map>
 
 #include <osg/Matrixf>
 
 #include <components/debug/debuglog.hpp>
+#include <components/esm3/loadcrea.hpp>
+#include <components/esm3/loaddial.hpp>
+#include <components/esm3/loadinfo.hpp>
+#include <components/esm3/loadregn.hpp>
+#include <components/esm3/loadsndg.hpp>
+#include <components/esm3/loadsoun.hpp>
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/rng.hpp>
+#include <components/sceneutil/textkeymap.hpp>
 #include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
@@ -21,20 +30,31 @@
 #include "../mwbase/world.hpp"
 
 #include "../mwworld/cellstore.hpp"
+#include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 
 #include "../mwmechanics/actorutil.hpp"
 
+#include "../mwrender/animation.hpp"
+
 #include "constants.hpp"
+#ifndef OPENMW_CTR_NATIVE
 #include "ffmpegdecoder.hpp"
+#endif
+#include "headcache.hpp"
 #ifdef __3DS__
 #include "nsadecoder.hpp"
 #endif
+#ifdef OPENMW_CTR_NATIVE
+#include "ndspoutput.hpp"
+#else
 #include "openaloutput.hpp"
+#endif
 #include "sound.hpp"
 #include "soundbuffer.hpp"
 #include "sounddecoder.hpp"
 #include "soundoutput.hpp"
+#include "warmqueue.hpp"
 
 namespace MWSound
 {
@@ -110,6 +130,23 @@ namespace MWSound
 
             return volume;
         }
+
+        std::unique_ptr<HeadCache> makeHeadCache(const VFS::Manager& vfs)
+        {
+#ifdef OPENMW_CTR_NATIVE
+            return nullptr;
+#endif
+            const std::size_t sizeMb = Settings::sound().mHeadCacheSize;
+            if (sizeMb == 0)
+                return nullptr;
+            return std::make_unique<HeadCache>(vfs, sizeMb * 1024 * 1024);
+        }
+
+        VFS::Path::Normalized resolveSoundPath(std::string_view sound, const VFS::Manager& vfs)
+        {
+            return Misc::ResourceHelpers::correctSoundPath(
+                Misc::ResourceHelpers::correctSoundPath(VFS::Path::toNormalized(sound)), vfs);
+        }
     }
 
     // For combining PlayMode and Type flags
@@ -120,7 +157,12 @@ namespace MWSound
 
     SoundManager::SoundManager(const VFS::Manager* vfs, bool useSound)
         : mVFS(vfs)
+        , mHeadCache(makeHeadCache(*vfs))
+#ifdef OPENMW_CTR_NATIVE
+        , mOutput(std::make_unique<NdspOutput>(*this))
+#else
         , mOutput(std::make_unique<OpenALOutput>(*this))
+#endif
         , mWaterSoundUpdater(makeWaterSoundUpdaterSettings())
         , mSoundBuffers(*mOutput)
         , mMusicType(MWSound::MusicType::Normal)
@@ -167,6 +209,17 @@ namespace MWSound
 
             Log(Debug::Info) << stream.str();
         }
+
+#ifndef OPENMW_CTR_NATIVE
+        if (mHeadCache != nullptr && Settings::sound().mWarmSounds)
+        {
+            mWarmQueue = std::make_unique<WarmQueue>(*vfs, *mHeadCache);
+            constexpr VFS::Path::NormalizedView musicDir("music/");
+            for (const VFS::Path::Normalized& name : vfs->getRecursiveDirectoryIterator(musicDir))
+                if (hasAudioExtension(name))
+                    mWarmQueue->enqueueStreamed(name);
+        }
+#endif
     }
 
     SoundManager::~SoundManager()
@@ -176,7 +229,6 @@ namespace MWSound
         mOutput.reset();
     }
 
-    // Return a new decoder instance, used as needed by the output implementations
     DecoderPtr SoundManager::getDecoder()
     {
 #ifdef __3DS__
@@ -185,7 +237,16 @@ namespace MWSound
         // FFmpeg for anything the offline bake missed.
         return std::make_shared<CtrAudioDecoder>(mVFS);
 #else
-        return std::make_shared<FFmpegDecoder>(mVFS);
+        return std::make_shared<FFmpegDecoder>(mVFS, mHeadCache.get(), /*recordHead=*/false);
+#endif
+    }
+
+    DecoderPtr SoundManager::getStreamDecoder()
+    {
+#ifdef __3DS__
+        return std::make_shared<CtrAudioDecoder>(mVFS);
+#else
+        return std::make_shared<FFmpegDecoder>(mVFS, mHeadCache.get(), /*recordHead=*/true);
 #endif
     }
 
@@ -193,7 +254,7 @@ namespace MWSound
     {
         try
         {
-            DecoderPtr decoder = getDecoder();
+            DecoderPtr decoder = getStreamDecoder();
             decoder->open(Misc::ResourceHelpers::correctSoundPath(voicefile, *decoder->mResourceMgr));
             return decoder;
         }
@@ -280,7 +341,7 @@ namespace MWSound
 
         Log(Debug::Info) << "Playing \"" << filename << "\"";
 
-        DecoderPtr decoder = getDecoder();
+        DecoderPtr decoder = getStreamDecoder();
         try
         {
             decoder->open(filename);
@@ -833,6 +894,103 @@ namespace MWSound
         mOutput->resumeActiveDevice();
     }
 
+    void SoundManager::warmStoreSounds()
+    {
+        if (mWarmQueue == nullptr)
+            return;
+
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+
+        for (const ESM::Sound& sound : store.get<ESM::Sound>())
+            mWarmQueue->enqueue(resolveSoundPath(sound.mSound, *mVFS));
+
+        for (const ESM::Dialogue& topic : store.get<ESM::Dialogue>())
+        {
+            if (topic.mType != ESM::Dialogue::Voice)
+                continue;
+            for (const ESM::DialInfo& info : topic.mInfo)
+                if (!info.mSound.empty())
+                    mWarmQueue->enqueueStreamed(resolveSoundPath(info.mSound, *mVFS));
+        }
+    }
+
+    void SoundManager::warmCellSounds()
+    {
+        if (mWarmQueue == nullptr)
+            return;
+        MWBase::World* world = MWBase::Environment::get().getWorld();
+        const MWWorld::Cell* cell = world->getPlayerPtr().getCell()->getCell();
+        if (cell == mLastWarmedCell)
+            return;
+        mLastWarmedCell = cell;
+
+        const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
+
+        std::set<VFS::Path::NormalizedView> soundGenModels;
+        std::unordered_map<const SceneUtil::TextKeyMap*, decltype(soundGenModels)::iterator> soundGenSources;
+        std::vector<const SceneUtil::TextKeyMap*> keyMaps;
+        for (MWWorld::CellStore* cellStore : world->getActiveCells())
+        {
+            if (const ESM::Region* region = store.get<ESM::Region>().search(cellStore->getCell()->getRegion()))
+                for (const ESM::Region::SoundRef& sound : region->mSoundList)
+                    enqueueWarmSound(sound.mSound);
+
+            cellStore->forEachConst([&](const MWWorld::ConstPtr& ptr) {
+                const ESM::RefId sound = ptr.getClass().getSound(ptr);
+                if (!sound.empty())
+                    enqueueWarmSound(sound);
+                if (const MWRender::Animation* anim = world->getAnimation(ptr))
+                {
+                    constexpr std::string_view soundPrefix = "sound: ";
+                    constexpr std::string_view soundGenPrefix = "soundgen: ";
+                    keyMaps.clear();
+                    anim->getTextKeyMaps(keyMaps);
+                    for (const SceneUtil::TextKeyMap* keys : keyMaps)
+                    {
+                        const auto [it, inserted] = soundGenSources.try_emplace(keys, soundGenModels.end());
+                        if (inserted)
+                        {
+                            bool hasSoundGen = false;
+                            for (const auto& [time, key] : *keys)
+                            {
+                                if (key.starts_with(soundPrefix))
+                                    enqueueWarmSound(
+                                        ESM::RefId::stringRefId(std::string_view(key).substr(soundPrefix.size())));
+                                else if (key.starts_with(soundGenPrefix))
+                                    hasSoundGen = true;
+                            }
+                            if (hasSoundGen)
+                                it->second = soundGenModels.insert(ptr.getClass().getModel(ptr)).first;
+                        }
+                        else if (it->second != soundGenModels.end())
+                        {
+                            const VFS::Path::NormalizedView model = ptr.getClass().getModel(ptr);
+                            if (model != *it->second)
+                                it->second = soundGenModels.insert(model).first;
+                        }
+                    }
+                }
+                return true;
+            });
+        }
+        if (soundGenModels.empty())
+            return;
+        std::set<ESM::RefId> creatures;
+        for (const ESM::Creature& creature : store.get<ESM::Creature>())
+            if (soundGenModels.count(creature.mModel.getNormalized()) > 0)
+                creatures.insert(creature.mOriginal.empty() ? creature.mId : creature.mOriginal);
+        for (const ESM::SoundGenerator& soundGen : store.get<ESM::SoundGenerator>())
+            if (soundGen.mCreature.empty() || creatures.count(soundGen.mCreature) > 0)
+                enqueueWarmSound(soundGen.mSound);
+    }
+
+    void SoundManager::enqueueWarmSound(const ESM::RefId& soundId)
+    {
+        const ESM::Sound* sound = MWBase::Environment::get().getESMStore()->get<ESM::Sound>().search(soundId);
+        if (sound != nullptr)
+            mWarmQueue->enqueue(resolveSoundPath(sound->mSound, *mVFS), true);
+    }
+
     void SoundManager::updateRegionSound(float duration)
     {
         MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -1118,6 +1276,7 @@ namespace MWSound
         updateSounds(duration);
         if (state != MWBase::StateManager::State_NoGame)
         {
+            warmCellSounds();
             updateRegionSound(duration);
             updateWaterSound();
         }
@@ -1308,6 +1467,7 @@ namespace MWSound
         for (StreamPtr& sound : mActiveTracks)
             mOutput->finishStream(sound.get());
         mActiveTracks.clear();
+        mLastWarmedCell = nullptr;
         mPlaybackPaused = false;
         std::fill(std::begin(mPausedSoundTypes), std::end(mPausedSoundTypes), 0);
     }

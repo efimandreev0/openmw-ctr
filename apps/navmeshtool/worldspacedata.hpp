@@ -2,6 +2,7 @@
 #define OPENMW_NAVMESHTOOL_WORLDSPACEDATA_H
 
 #include <components/bullethelpers/collisionobject.hpp>
+#include <components/detournavigator/settings.hpp>
 #include <components/detournavigator/tilecachedrecastmeshmanager.hpp>
 #include <components/esm3/loadland.hpp>
 #include <components/misc/convert.hpp>
@@ -37,20 +38,16 @@ namespace EsmLoader
     struct EsmData;
 }
 
-namespace DetourNavigator
-{
-    struct Settings;
-}
-
 namespace NavMeshTool
 {
     using DetourNavigator::ObjectTransform;
+    using DetourNavigator::RecastSettings;
     using DetourNavigator::TileCachedRecastMeshManager;
 
     class BulletObject
     {
     public:
-        BulletObject(osg::ref_ptr<Resource::BulletShapeInstance>&& shapeInstance, const ESM::Position& position,
+        BulletObject(std::shared_ptr<Resource::BulletShapeInstance>&& shapeInstance, const ESM::Position& position,
             float localScaling)
             : mShapeInstance(std::move(shapeInstance))
             , mObjectTransform{ position, localScaling }
@@ -61,28 +58,43 @@ namespace NavMeshTool
             mShapeInstance->setLocalScaling(btVector3(localScaling, localScaling, localScaling));
         }
 
-        const osg::ref_ptr<Resource::BulletShapeInstance>& getShapeInstance() const noexcept { return mShapeInstance; }
+        const std::shared_ptr<Resource::BulletShapeInstance>& getShapeInstance() const noexcept
+        {
+            return mShapeInstance;
+        }
         const DetourNavigator::ObjectTransform& getObjectTransform() const noexcept { return mObjectTransform; }
         btCollisionObject& getCollisionObject() const noexcept { return *mCollisionObject; }
 
     private:
-        osg::ref_ptr<Resource::BulletShapeInstance> mShapeInstance;
+        std::shared_ptr<Resource::BulletShapeInstance> mShapeInstance;
         DetourNavigator::ObjectTransform mObjectTransform;
         std::unique_ptr<btCollisionObject> mCollisionObject;
+    };
+
+    struct TilesData
+    {
+        const RecastSettings mSettings;
+        TileCachedRecastMeshManager mTileCachedRecastMeshManager;
+        std::vector<BulletObject> mObjects;
+        std::vector<std::unique_ptr<ESM::Land::LandData>> mLandData;
+        std::vector<std::vector<float>> mHeightfields;
+
+        explicit TilesData(const RecastSettings& settings)
+            : mSettings(settings)
+            , mTileCachedRecastMeshManager(mSettings)
+        {
+        }
     };
 
     struct WorldspaceData
     {
         ESM::RefId mWorldspace;
-        std::unique_ptr<TileCachedRecastMeshManager> mTileCachedRecastMeshManager;
         btAABB mAabb;
         bool mAabbInitialized = false;
         std::vector<DetourNavigator::TilePosition> mTiles;
-        std::vector<BulletObject> mObjects;
-        std::vector<std::unique_ptr<ESM::Land::LandData>> mLandData;
-        std::vector<std::vector<float>> mHeightfields;
+        std::shared_ptr<TilesData> mTilesData;
 
-        WorldspaceData(ESM::RefId worldspace, const DetourNavigator::RecastSettings& settings);
+        WorldspaceData(ESM::RefId worldspace, const RecastSettings& settings);
     };
 
     std::unordered_map<ESM::RefId, std::vector<std::size_t>> collectWorldspaceCells(

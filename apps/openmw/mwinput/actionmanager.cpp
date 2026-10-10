@@ -24,14 +24,16 @@
 #include "actions.hpp"
 #include "bindingsmanager.hpp"
 
+#ifdef OPENMW_NO_LUA
+#include "../nolua/nullluamanager.hpp"
+#endif
+
 namespace MWInput
 {
 
-    ActionManager::ActionManager(BindingsManager* bindingsManager, osg::ref_ptr<osgViewer::Viewer> viewer,
-        osg::ref_ptr<osgViewer::ScreenCaptureHandler> screenCaptureHandler)
+    ActionManager::ActionManager(BindingsManager* bindingsManager, std::function<void()> takeScreenshot)
         : mBindingsManager(bindingsManager)
-        , mViewer(std::move(viewer))
-        , mScreenCaptureHandler(std::move(screenCaptureHandler))
+        , mTakeScreenshot(std::move(takeScreenshot))
         , mTimeIdle(0.f)
     {
     }
@@ -58,6 +60,11 @@ namespace MWInput
     void ActionManager::executeAction(int action)
     {
         MWBase::Environment::get().getLuaManager()->inputEvent({ MWBase::LuaManager::InputEvent::Action, action });
+#ifdef OPENMW_NO_LUA
+        static_cast<MWNoLua::NullLuaManager&>(*MWBase::Environment::get().getLuaManager())
+            .getPlayerControls()
+            .onAction(action);
+#endif
         const auto inputManager = MWBase::Environment::get().getInputManager();
         const auto windowManager = MWBase::Environment::get().getWindowManager();
         // trigger action activated
@@ -168,8 +175,7 @@ namespace MWInput
 
     void ActionManager::screenshot()
     {
-        mScreenCaptureHandler->setFramesToCapture(1);
-        mScreenCaptureHandler->captureNextFrame(*mViewer);
+        mTakeScreenshot();
     }
 
     void ActionManager::toggleMainMenu()

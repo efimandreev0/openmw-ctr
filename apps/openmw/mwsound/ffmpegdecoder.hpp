@@ -30,11 +30,17 @@ extern "C"
 #include <components/files/istreamptr.hpp>
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "sounddecoder.hpp"
 
 namespace MWSound
 {
+    bool hasAudioExtension(VFS::Path::NormalizedView fname);
+
+    class HeadCache;
+
     struct AVIOContextDeleter
     {
         void operator()(AVIOContext* ptr) const;
@@ -91,7 +97,15 @@ namespace MWSound
 
         bool getNextPacket();
 
+        bool openContext(const char* name, const AVInputFormat* fmt, bool limitProbe, AVIOContextPtr& ioCtx,
+            AVFormatContextPtr& formatCtx, AVStream**& stream);
+
         Files::IStreamPtr mDataStream;
+
+        std::streamoff mStreamBase = 0;
+        std::vector<std::pair<std::streamoff, char>> mPatchedBytes;
+
+        void applyArtShims();
 
         static int readPacket(void* userData, uint8_t* buf, int bufSize);
 #if OPENMW_FFMPEG_CONST_WRITEPACKET
@@ -118,11 +132,16 @@ namespace MWSound
         FFmpegDecoder(const FFmpegDecoder& rhs);
 
     public:
-        explicit FFmpegDecoder(const VFS::Manager* vfs);
+        explicit FFmpegDecoder(const VFS::Manager* vfs, HeadCache* headCache, bool recordHead);
 
         virtual ~FFmpegDecoder();
 
         friend class SoundManager;
+        friend class WarmQueue;
+
+    private:
+        HeadCache* mHeadCache;
+        bool mRecordHead;
     };
 }
 

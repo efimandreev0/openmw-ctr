@@ -76,6 +76,7 @@ static void countDrawables(const osg::Node* node, unsigned int& drawableCount, u
 #include "../mwbase/windowmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#include "../mwrender/camera.hpp"
 #include "../mwrender/landmanager.hpp"
 #include "../mwrender/objects.hpp"
 #include "../mwrender/postprocessor.hpp"
@@ -1862,7 +1863,7 @@ namespace MWWorld
 
         if (cellVariant.isExterior())
         {
-            osg::ref_ptr<const ESMTerrain::LandObject> land = mRendering.getLandManager()->getLand(cellIndex);
+            std::shared_ptr<const ESMTerrain::LandObject> land = mRendering.getLandManager()->getLand(cellIndex);
             const ESM::LandData* data = land ? land->getData(ESM::Land::DATA_VHGT) : nullptr;
             const int verts = ESM::getLandSize(worldspace);
             const int worldsize = ESM::getCellSize(worldspace);
@@ -1870,13 +1871,13 @@ namespace MWWorld
             if (data)
             {
                 mPhysics->addHeightField(data->getHeights().data(), cellX, cellY, worldsize, verts,
-                    data->getMinHeight(), data->getMaxHeight(), land.get());
+                    data->getMinHeight(), data->getMaxHeight(), std::move(land));
             }
             else if (!ESM::isEsm4Ext(worldspace))
             {
                 static const std::vector<float> defaultHeight(verts * verts, ESM::Land::DEFAULT_HEIGHT);
                 mPhysics->addHeightField(defaultHeight.data(), cellX, cellY, worldsize, verts,
-                    ESM::Land::DEFAULT_HEIGHT, ESM::Land::DEFAULT_HEIGHT, land.get());
+                    ESM::Land::DEFAULT_HEIGHT, ESM::Land::DEFAULT_HEIGHT, std::move(land));
             }
             if (mPhysics->getHeightField(cellX, cellY))
             {
@@ -2590,10 +2591,10 @@ namespace MWWorld
 
     Scene::~Scene()
     {
-        for (const osg::ref_ptr<SceneUtil::WorkItem>& v : mWorkItems)
+        for (const std::shared_ptr<SceneUtil::WorkItem>& v : mWorkItems)
             v->abort();
 
-        for (const osg::ref_ptr<SceneUtil::WorkItem>& v : mWorkItems)
+        for (const std::shared_ptr<SceneUtil::WorkItem>& v : mWorkItems)
             v->waitTillDone();
     }
 
@@ -2956,10 +2957,9 @@ namespace MWWorld
         if (mRendering.getResourceSystem()->getSceneManager()->checkLoaded(meshPath, mRendering.getReferenceTime()))
             return;
 
-        osg::ref_ptr<PreloadMeshItem> item(
-            new PreloadMeshItem(meshPath, mRendering.getResourceSystem()->getSceneManager()));
+        auto item = std::make_shared<PreloadMeshItem>(meshPath, mRendering.getResourceSystem()->getSceneManager());
         mRendering.getWorkQueue()->addWorkItem(item);
-        const auto isDone = [](const osg::ref_ptr<SceneUtil::WorkItem>& v) { return v->isDone(); };
+        const auto isDone = [](const std::shared_ptr<SceneUtil::WorkItem>& v) { return v->isDone(); };
         mWorkItems.erase(std::remove_if(mWorkItems.begin(), mWorkItems.end(), isDone), mWorkItems.end());
         mWorkItems.emplace_back(std::move(item));
     }
@@ -2976,8 +2976,12 @@ namespace MWWorld
         osg::Vec3f predictedPos = playerPos + moved / dt * mPredictionTime;
 
         if (mCurrentCell->isExterior())
-            exteriorPositions.push_back(PositionCellGrid{
-                predictedPos, gridCenterToBounds(getNewGridCenter(predictedPos, &mCurrentGridCenter)) });
+        {
+            const MWRender::Camera& camera = *mRendering.getCamera();
+            exteriorPositions = terrainPreloadPositions(predictedPos, playerPos, camera.getPosition(),
+                camera.getMode() == MWRender::Camera::Mode::Static,
+                gridCenterToBounds(getNewGridCenter(predictedPos, nullptr)), mCurrentCell->getCell()->getWorldSpace());
+        }
 
         mLastPlayerPos = playerPos;
 
@@ -3035,15 +3039,9 @@ namespace MWWorld
 
             if (sqrDistToPlayer < mPreloadDistance * mPreloadDistance)
             {
-                try
-                {
-                    preloadCellWithSurroundings(mWorld.getWorldModel().getCell(door.getCellRef().getDestCell()));
-                }
-                catch (const std::exception& e)
-                {
-                    Log(Debug::Warning) << "Failed to schedule preload for door " << door.toString() << ": "
-                                        << e.what();
-                }
+                CellStore* dest = mWorld.getWorldModel().findCell(door.getCellRef().getDestCell());
+                if (dest != nullptr)
+                    preloadCellWithSurroundings(*dest);
             }
         }
     }
@@ -3172,9 +3170,10 @@ namespace MWWorld
             throw std::runtime_error("preloadTerrain can only work with the current exterior worldspace");
 
         ESM::ExteriorCellLocation cellPos = ESM::positionToExteriorCellLocation(pos.x(), pos.y(), worldspace);
-        const PositionCellGrid position{ pos, gridCenterToBounds({ cellPos.mX, cellPos.mY }) };
-        mPreloader->abortTerrainPreloadExcept(&position);
-        mPreloader->setTerrainPreloadPositions(std::span(&position, 1));
+        const std::vector<PositionCellGrid> positions = terrainPreloadPositions(
+            pos, pos, osg::Vec3f(), false, gridCenterToBounds({ cellPos.mX, cellPos.mY }), worldspace);
+        mPreloader->abortTerrainPreloadExcept(&positions.front());
+        mPreloader->setTerrainPreloadPositions(positions);
         if (!sync)
             return;
 

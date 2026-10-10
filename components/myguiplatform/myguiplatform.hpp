@@ -1,6 +1,10 @@
 #ifndef OPENMW_COMPONENTS_MYGUIPLATFORM_MYGUIPLATFORM_H
 #define OPENMW_COMPONENTS_MYGUIPLATFORM_MYGUIPLATFORM_H
 
+#ifdef __3DS__
+#include "ctr/myguiplatform.hpp"
+#else
+
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -58,5 +62,7 @@ namespace MyGUIPlatform
     };
 
 }
+
+#endif // __3DS__
 
 #endif

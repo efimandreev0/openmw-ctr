@@ -27,7 +27,7 @@ namespace CSVRender
         resetHeights();
     }
 
-    osg::ref_ptr<const ESMTerrain::LandObject> TerrainStorage::getLand(ESM::ExteriorCellLocation cellLocation)
+    std::shared_ptr<const ESMTerrain::LandObject> TerrainStorage::getLand(ESM::ExteriorCellLocation cellLocation)
     {
         // The cell isn't guaranteed to have Land. This is because the terrain implementation
         // has to wrap the vertices of the last row and column to the next cell, which may be a nonexisting cell
@@ -37,11 +37,11 @@ namespace CSVRender
             return nullptr;
 
         const ESM::Land& land = mData.getLand().getRecord(index).get();
-        return new ESMTerrain::LandObject(
+        return std::make_shared<const ESMTerrain::LandObject>(
             land, ESM::Land::DATA_VHGT | ESM::Land::DATA_VNML | ESM::Land::DATA_VCLR | ESM::Land::DATA_VTEX);
     }
 
-    const std::string* TerrainStorage::getLandTexture(std::uint16_t index, int plugin)
+    const VFS::Path::Normalized* TerrainStorage::getLandTexture(std::uint16_t index, int plugin)
     {
         return mData.getLandTextures().getLandTexture(index, plugin);
     }

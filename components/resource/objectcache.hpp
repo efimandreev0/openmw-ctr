@@ -22,15 +22,20 @@
 
 #include "cachestats.hpp"
 
+#ifdef __3DS__
+#include <osg/Object>
+#else
 #include <osg/Node>
-#include <osg/Referenced>
+#endif
 #include <osg/ref_ptr>
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace osg
@@ -43,14 +48,36 @@ namespace osg
 
 namespace Resource
 {
+    template <class T>
+    long useCount(const std::shared_ptr<T>& value)
+    {
+        return value.use_count();
+    }
+
+    template <class T>
+    long useCount(const osg::ref_ptr<T>& value)
+    {
+        return value == nullptr ? 0 : value->referenceCount();
+    }
+
+    template <class T>
+    concept ReleasesGLObjects = requires(T value, osg::State* state)
+    {
+        value->releaseGLObjects(state);
+    };
+
+    template <class T>
+    concept HoldsOsgObject = std::is_convertible_v<decltype(std::declval<T>().get()), osg::Object*>;
+
+    template <class ValueType>
     struct GenericObjectCacheItem
     {
-        osg::ref_ptr<osg::Object> mValue;
+        ValueType mValue;
         double mLastUsage;
     };
 
-    template <typename KeyType>
-    class GenericObjectCache : public osg::Referenced
+    template <typename KeyType, typename ValueType>
+    class GenericObjectCache
     {
     public:
         /*
@@ -69,7 +96,7 @@ namespace Resource
          */
         void update(double referenceTime, double expiryDelay)
         {
-            std::vector<osg::ref_ptr<osg::Object>> objectsToRemove;
+            std::vector<ValueType> objectsToRemove;
             {
                 const double expiryTime = referenceTime - expiryDelay;
                 std::lock_guard<std::mutex> lock(mMutex);
@@ -79,7 +106,7 @@ namespace Resource
 
                     // update last usage timestamp if item is being referenced externally
                     // or initialize if not set
-                    if ((item.mValue != nullptr && item.mValue->referenceCount() > 1) || item.mLastUsage == 0)
+                    if (useCount(item.mValue) > 1 || item.mLastUsage == 0)
                         item.mLastUsage = referenceTime;
 
                     // skip items that have been accessed since expiryTime
@@ -109,7 +136,7 @@ namespace Resource
                     std::vector<typename std::remove_reference_t<decltype(mItems)>::iterator> evictable;
                     evictable.reserve(mItems.size());
                     for (auto it = mItems.begin(); it != mItems.end(); ++it)
-                        if (it->second.mValue != nullptr && it->second.mValue->referenceCount() <= 1)
+                        if (it->second.mValue != nullptr && useCount(it->second.mValue) <= 1)
                             evictable.push_back(it);
                     const std::size_t target = mItems.size() - kCtrCacheCap;
                     if (evictable.size() > 0)
@@ -140,14 +167,14 @@ namespace Resource
 
         /** Add a key,object,timestamp triple to the Registry::ObjectCache.*/
         template <class K>
-        void addEntryToObjectCache(K&& key, osg::Object* object, double timestamp = 0.0)
+        void addEntryToObjectCache(K&& key, ValueType object, double timestamp = 0.0)
         {
             std::lock_guard<std::mutex> lock(mMutex);
             const auto it = mItems.find(key);
             if (it == mItems.end())
-                mItems.emplace_hint(it, std::forward<K>(key), Item{ object, timestamp });
+                mItems.emplace_hint(it, std::forward<K>(key), Item{ std::move(object), timestamp });
             else
-                it->second = Item{ object, timestamp };
+                it->second = Item{ std::move(object), timestamp };
         }
 
         /** Remove Object from cache.*/
@@ -159,16 +186,16 @@ namespace Resource
                 mItems.erase(itr);
         }
 
-        /** Get an ref_ptr<Object> from the object cache*/
-        osg::ref_ptr<osg::Object> getRefFromObjectCache(const auto& key)
+        /** Get a value from the object cache; a default-constructed one if absent. */
+        ValueType getRefFromObjectCache(const auto& key)
         {
             std::lock_guard<std::mutex> lock(mMutex);
             if (Item* const item = find(key))
                 return item->mValue;
-            return nullptr;
+            return ValueType();
         }
 
-        std::optional<osg::ref_ptr<osg::Object>> getRefFromObjectCacheOrNone(const auto& key)
+        std::optional<ValueType> getRefFromObjectCacheOrNone(const auto& key)
         {
             const std::lock_guard<std::mutex> lock(mMutex);
             if (Item* const item = find(key))
@@ -188,16 +215,20 @@ namespace Resource
             return false;
         }
 
-        /** call releaseGLObjects on all objects attached to the object cache.*/
-        void releaseGLObjects(osg::State* state)
+        /** call releaseGLObjects on all objects attached to the object cache.
+            Constrained, so instantiating the cache with a value type that has no such
+            method is not an error — it simply does not offer this. */
+        void releaseGLObjects(osg::State* state) requires ReleasesGLObjects<ValueType>
         {
             std::lock_guard<std::mutex> lock(mMutex);
             for (const auto& [k, v] : mItems)
                 v.mValue->releaseGLObjects(state);
         }
 
-        /** call node->accept(nv); for all nodes in the objectCache. */
-        void accept(osg::NodeVisitor& nv)
+        /** call node->accept(nv); for all nodes in the objectCache. Constrained for
+            the same reason as releaseGLObjects. */
+#ifndef __3DS__
+        void accept(osg::NodeVisitor& nv) requires HoldsOsgObject<ValueType>
         {
             std::lock_guard<std::mutex> lock(mMutex);
             for (const auto& [k, v] : mItems)
@@ -205,6 +236,7 @@ namespace Resource
                     if (osg::Node* const node = dynamic_cast<osg::Node*>(object))
                         node->accept(nv);
         }
+#endif
 
         /** call operator()(KeyType, osg::Object*) for each object in the cache. */
         template <class Functor>
@@ -216,7 +248,7 @@ namespace Resource
         }
 
         template <class K>
-        std::optional<std::pair<KeyType, osg::ref_ptr<osg::Object>>> lowerBound(K&& key)
+        std::optional<std::pair<KeyType, ValueType>> lowerBound(K&& key)
         {
             const std::lock_guard<std::mutex> lock(mMutex);
             const auto it = mItems.lower_bound(std::forward<K>(key));
@@ -237,7 +269,7 @@ namespace Resource
         }
 
     protected:
-        using Item = GenericObjectCacheItem;
+        using Item = GenericObjectCacheItem<ValueType>;
 
         std::map<KeyType, Item, std::less<>> mItems;
         mutable std::mutex mMutex;

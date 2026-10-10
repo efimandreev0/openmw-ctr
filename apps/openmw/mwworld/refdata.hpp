@@ -135,6 +135,8 @@ namespace MWWorld
 
         const CustomData* getCustomData() const;
 
+        bool hasCustomData() const;
+
         bool activate();
 
         bool onActivate();
@@ -143,6 +145,8 @@ namespace MWWorld
 
         bool hasChanged() const;
         ///< Has this RefData changed since it was originally loaded?
+
+        void setChanged(bool changed);
 
         const ESM::AnimationState& getAnimationState() const;
         ESM::AnimationState& getAnimationState();

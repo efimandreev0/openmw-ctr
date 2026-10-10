@@ -6,11 +6,16 @@
 
 #include <array>
 
+#ifdef OPENMW_CTR_NATIVE
+#include "../ctr/ctrframe.hpp"
+#else
 #include <osgViewer/Viewer>
 
 #include <osg/Texture2D>
+#endif
 
 #include <MyGUI_Gui.h>
+#include <MyGUI_RenderManager.h>
 #include <MyGUI_ScrollBar.h>
 #include <MyGUI_TextBox.h>
 #include <MyGUI_UString.h>
@@ -34,10 +39,16 @@
 namespace MWGui
 {
 
+#ifdef OPENMW_CTR_NATIVE
+    LoadingScreen::LoadingScreen(Resource::ResourceSystem* resourceSystem)
+        : WindowBase("openmw_loading_screen.layout")
+        , mResourceSystem(resourceSystem)
+#else
     LoadingScreen::LoadingScreen(Resource::ResourceSystem* resourceSystem, osgViewer::Viewer* viewer)
         : WindowBase("openmw_loading_screen.layout")
         , mResourceSystem(resourceSystem)
         , mViewer(viewer)
+#endif
 #if defined(__vita__) || defined(__3DS__)
         , mTargetFrameRate(15.0)
 #else
@@ -118,6 +129,7 @@ namespace MWGui
             return mTargetFrameRate;
     }
 
+#ifndef OPENMW_CTR_NATIVE
     class CopyFramebufferToTextureCallback : public osg::Camera::DrawCallback
     {
     public:
@@ -150,6 +162,8 @@ namespace MWGui
         osg::BoundingSphere computeBound(const osg::Node&) const override { return osg::BoundingSphere(); }
     };
 
+#endif
+
     void LoadingScreen::loadingOn()
     {
         // Early-out if already on
@@ -161,6 +175,7 @@ namespace MWGui
         // Assign dummy bounding sphere callback to avoid the bounding sphere of the entire scene being recomputed after
         // each frame of loading We are already using node masks to avoid the scene from being updated/rendered, but
         // node masks don't work for computeBound()
+#ifndef OPENMW_CTR_NATIVE
         mViewer->getSceneData()->setComputeBoundingSphereCallback(new DontComputeBoundCallback);
 
         if (const osgUtil::IncrementalCompileOperation* ico = mViewer->getIncrementalCompileOperation())
@@ -168,6 +183,7 @@ namespace MWGui
             mOldIcoMin = ico->getMinimumTimeAvailableForGLCompileAndDeletePerFrame();
             mOldIcoMax = ico->getMaximumNumOfObjectsToCompilePerFrame();
         }
+#endif
 
         setVisible(true);
 
@@ -199,16 +215,20 @@ namespace MWGui
         else
             mImportantLabel = false; // label was already shown on loading screen
 
+#ifndef OPENMW_CTR_NATIVE
         mViewer->getSceneData()->setComputeBoundingSphereCallback(nullptr);
         mViewer->getSceneData()->dirtyBound();
+#endif
 
         setVisible(false);
 
+#ifndef OPENMW_CTR_NATIVE
         if (osgUtil::IncrementalCompileOperation* ico = mViewer->getIncrementalCompileOperation())
         {
             ico->setMinimumTimeAvailableForGLCompileAndDeletePerFrame(mOldIcoMin);
             ico->setMaximumNumOfObjectsToCompilePerFrame(mOldIcoMax);
         }
+#endif
 
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_Loading);
         MWBase::Environment::get().getWindowManager()->removeGuiMode(GM_LoadingWallpaper);
@@ -234,6 +254,14 @@ namespace MWGui
             // as 4:3
             mSplashImage->setVisible(true);
             mSplashImage->setBackgroundImage(randomSplash, true, Settings::gui().mStretchMenuBackground);
+#ifdef OPENMW_CTR_NATIVE
+            if (!mShownSplash.empty() && mShownSplash != randomSplash)
+            {
+                MyGUI::RenderManager& renderManager = MyGUI::RenderManager::getInstance();
+                renderManager.destroyTexture(renderManager.getTexture(mShownSplash));
+            }
+            mShownSplash = randomSplash;
+#endif
         }
         mSceneImage->setBackgroundImage({});
         mSceneImage->setVisible(false);
@@ -295,6 +323,7 @@ namespace MWGui
         return true;
     }
 
+#ifndef OPENMW_CTR_NATIVE
     void LoadingScreen::setupCopyFramebufferToTextureCallback()
     {
         // Copy the current framebuffer onto a texture and display that texture as the background image
@@ -328,9 +357,11 @@ namespace MWGui
         mSplashImage->setVisible(false);
 
         mSceneImage->setRenderItemTexture(mGuiTexture.get());
-        mSceneImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+        mSceneImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
         mSceneImage->setVisible(true);
     }
+
+#endif
 
     void LoadingScreen::draw()
     {
@@ -356,6 +387,9 @@ namespace MWGui
 
         MWBase::Environment::get().getInputManager()->update(0, true, true);
 
+#ifdef OPENMW_CTR_NATIVE
+        CtrFrame::present(false);
+#else
         osg::Stats* const stats = mViewer->getViewerStats();
         const unsigned frameNumber = mViewer->getFrameStamp()->getFrameNumber();
 
@@ -375,6 +409,7 @@ namespace MWGui
         mViewer->updateTraversal();
         mViewer->renderingTraversals();
         mViewer->advance(mViewer->getFrameStamp()->getSimulationTime());
+#endif
 
         mLastRenderTime = mTimer.time_m();
     }

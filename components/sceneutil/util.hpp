@@ -1,6 +1,7 @@
 #ifndef OPENMW_COMPONENTS_SCENEUTIL_UTIL_H
 #define OPENMW_COMPONENTS_SCENEUTIL_UTIL_H
 
+#include "colourutil.hpp"
 #include <osg/Camera>
 #include <osg/Matrixf>
 #include <osg/Texture2D>
@@ -9,6 +10,11 @@
 #include <components/resource/resourcesystem.hpp>
 
 #include "statesetupdater.hpp"
+
+namespace osgViewer
+{
+    class Renderer;
+}
 
 namespace SceneUtil
 {
@@ -84,12 +90,6 @@ namespace SceneUtil
         bsphere._radius = sqrtf(bsphere._radius);
     }
 
-    osg::Vec4f colourFromRGB(unsigned int clr);
-
-    osg::Vec4f colourFromRGBA(unsigned int value);
-
-    float makeOsgColorComponent(unsigned int value, unsigned int shift);
-
     bool hasUserDescription(const osg::Node* node, std::string_view pattern);
 
     osg::ref_ptr<GlowUpdater> addEnchantedGlow(osg::ref_ptr<osg::Node> node, Resource::ResourceSystem* resourceSystem,
@@ -120,6 +120,8 @@ namespace SceneUtil
     // Recover the presumed texture type for the given texture unit
     // It may be set as a state attribute or it may come from the used texture's name
     const std::string& getTextureType(const osg::StateSet& stateset, const osg::Texture& texture, unsigned int texUnit);
+
+    void disableFFPStateForRenderer(osgViewer::Renderer* renderer);
 }
 
 #endif

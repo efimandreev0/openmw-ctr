@@ -21,7 +21,11 @@ namespace SDLUtil
     class InputWrapper
     {
     public:
+#ifdef __3DS__
+        InputWrapper(SDL_Window* window, void* viewer, bool grab);
+#else
         InputWrapper(SDL_Window* window, osg::ref_ptr<osgViewer::Viewer> viewer, bool grab);
+#endif
         ~InputWrapper();
 
         void setMouseEventCallback(MouseListener* listen) { mMouseListener = listen; }
@@ -52,7 +56,9 @@ namespace SDLUtil
         void _setWindowScale();
 
         SDL_Window* mSDLWindow;
+#ifndef __3DS__
         osg::ref_ptr<osgViewer::Viewer> mViewer;
+#endif
 
         MouseListener* mMouseListener;
         SensorListener* mSensorListener;
@@ -75,8 +81,7 @@ namespace SDLUtil
         bool mFirstMouseMove;
 
         Sint32 mMouseZ;
-        Sint32 mMouseX;
-        Sint32 mMouseY;
+        double mPendingWheelY;
 
         bool mWindowHasFocus;
         bool mMouseInWindow;
@@ -91,6 +96,8 @@ namespace SDLUtil
         std::function<bool()> mTouchCursorEnabled;
         SDL_FingerID mCursorFingerId = 0;
         bool mCursorFingerActive = false;
+        Sint32 mMouseX = 0; // last absolute touch-cursor position (GUI mode)
+        Sint32 mMouseY = 0;
         // Back-touchpad → L2/R2 trigger mapping. State tracked per-half so
         // pressing both at once (L2+R2) works.
         bool mBackTouchL2 = false;

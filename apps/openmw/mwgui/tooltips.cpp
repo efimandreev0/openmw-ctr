@@ -13,6 +13,7 @@
 #include <components/esm/records.hpp>
 #include <components/l10n/manager.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/resource/resourcesystem.hpp>
 #include <components/settings/values.hpp>
 #include <components/widgets/box.hpp>
 
@@ -121,7 +122,7 @@ namespace MWGui
                     tooltipSize = createToolTip(info, checkOwned());
                 }
                 else
-                    tooltipSize = getToolTipViaPtr(mFocusObject.getCellRef().getCount(), true);
+                    tooltipSize = getToolTipViaPtr(mFocusObject.getCellRef().getCount(), true, checkOwned());
 
                 MyGUI::IntPoint tooltipPosition = MyGUI::InputManager::getInstance().getMousePosition();
                 position(tooltipPosition, tooltipSize, viewSize);
@@ -826,8 +827,7 @@ namespace MWGui
 
         const MWWorld::ESMStore& store = *MWBase::Environment::get().getESMStore();
         const ESM::Skill* skill = store.get<ESM::Skill>().find(skillId);
-        const ESM::Attribute* attr
-            = store.get<ESM::Attribute>().find(ESM::Attribute::indexToRefId(skill->mData.mAttribute));
+        const ESM::Attribute* attr = store.get<ESM::Attribute>().find(skill->mData.mAttribute);
 
         widget->setUserString("ToolTipType", "Layout");
         widget->setUserString("ToolTipLayout", "SkillNoProgressToolTip");
@@ -835,7 +835,7 @@ namespace MWGui
         widget->setUserString("Caption_SkillNoProgressDescription", skill->mDescription);
         widget->setUserString("Caption_SkillNoProgressAttribute",
             "#{sGoverningAttribute}: " + MyGUI::TextIterator::toTagsString(attr->mName));
-        widget->setUserString("ImageTexture_SkillNoProgressImage", skill->mIcon);
+        widget->setUserString("ImageTexture_SkillNoProgressImage", skill->mIcon.getNormalized());
     }
 
     void ToolTips::createAttributeToolTip(MyGUI::Widget* widget, ESM::RefId attributeId)
@@ -850,7 +850,7 @@ namespace MWGui
         widget->setUserString("Caption_AttributeName", MyGUI::TextIterator::toTagsString(attribute->mName));
         widget->setUserString(
             "Caption_AttributeDescription", MyGUI::TextIterator::toTagsString(attribute->mDescription));
-        widget->setUserString("ImageTexture_AttributeImage", attribute->mIcon);
+        widget->setUserString("ImageTexture_AttributeImage", attribute->mIcon.getNormalized());
     }
 
     void ToolTips::createSpecializationToolTip(MyGUI::Widget* widget, std::string_view name, int specId)
@@ -888,7 +888,7 @@ namespace MWGui
         widget->setUserString("ToolTipType", "Layout");
         widget->setUserString("ToolTipLayout", "BirthSignToolTip");
         widget->setUserString("ImageTexture_BirthSignImage",
-            Misc::ResourceHelpers::correctTexturePath(VFS::Path::toNormalized(sign->mTexture), *vfs));
+            Misc::ResourceHelpers::correctTexturePath(sign->mTexture.getNormalized(), *vfs));
         widget->setUserString("Caption_BirthSignName", sign->mName);
         widget->setUserString("Caption_BirthSignDescription", sign->mDescription);
 
@@ -959,10 +959,8 @@ namespace MWGui
         const auto& store = MWBase::Environment::get().getESMStore();
         const ESM::MagicEffect* effect = store->get<ESM::MagicEffect>().find(effectId);
 
-        std::string icon = effect->mIcon;
-        icon.insert(icon.rfind('\\') + 1, "b_");
-        const VFS::Path::Normalized iconPath = Misc::ResourceHelpers::correctIconPath(
-            VFS::Path::toNormalized(icon), *MWBase::Environment::get().getResourceSystem()->getVFS());
+        const VFS::Path::Normalized iconPath = Misc::ResourceHelpers::correctBigIconPath(
+            effect->mIcon.getNormalized(), *MWBase::Environment::get().getResourceSystem()->getVFS());
 
         widget->setUserString("ToolTipType", "Layout");
         widget->setUserString("ToolTipLayout", "MagicEffectToolTip");

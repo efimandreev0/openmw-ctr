@@ -1,14 +1,11 @@
 #include "riggeometry.hpp"
 
-#include <unordered_map>
-
 #include <osg/MatrixTransform>
 
 #include <osgUtil/CullVisitor>
 
 #include <components/debug/debuglog.hpp>
 #include <components/misc/strings/algorithm.hpp>
-#include <components/resource/scenemanager.hpp>
 
 #include "skeleton.hpp"
 #include "util.hpp"
@@ -48,7 +45,7 @@ namespace SceneUtil
             // - Arrays that we add or replace in the cloned geometry must be explicitely forbidden from reusing
             // BufferObjects of the original geometry. (ensured by vbo below)
             mGeometry[i] = new osg::Geometry(from, osg::CopyOp::SHALLOW_COPY);
-            mGeometry[i]->getOrCreateUserDataContainer()->addUserObject(new Resource::TemplateRef(mSourceGeometry));
+            mGeometry[i]->getOrCreateUserDataContainer()->addUserObject(mSourceGeometry.get());
 
             osg::Geometry& to = *mGeometry[i];
             to.setSupportsDisplayList(false);
@@ -339,28 +336,6 @@ namespace SceneUtil
         mData->mBones = std::move(bones);
     }
 
-    void RigGeometry::setInfluences(const std::vector<VertexWeights>& influences)
-    {
-        if (!mData)
-            mData = new InfluenceData;
-
-        std::unordered_map<unsigned short, BoneWeights> vertexToInfluences;
-        size_t index = 0;
-        for (const auto& influence : influences)
-        {
-            for (const auto& [vertex, weight] : influence)
-                vertexToInfluences[vertex].emplace_back(index, weight);
-            index++;
-        }
-
-        std::map<BoneWeights, VertexList> influencesToVertices;
-        for (const auto& [vertex, weights] : vertexToInfluences)
-            influencesToVertices[weights].emplace_back(vertex);
-
-        mData->mInfluences.reserve(influencesToVertices.size());
-        mData->mInfluences.assign(influencesToVertices.begin(), influencesToVertices.end());
-    }
-
     void RigGeometry::setInfluences(const std::vector<BoneWeights>& influences)
     {
         if (!mData)
@@ -369,6 +344,7 @@ namespace SceneUtil
         std::map<BoneWeights, VertexList> influencesToVertices;
         for (size_t i = 0; i < influences.size(); i++)
             influencesToVertices[influences[i]].emplace_back(static_cast<VertexList::value_type>(i));
+        influencesToVertices.erase(BoneWeights());
 
         mData->mInfluences.reserve(influencesToVertices.size());
         mData->mInfluences.assign(influencesToVertices.begin(), influencesToVertices.end());

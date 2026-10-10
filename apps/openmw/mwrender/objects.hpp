@@ -1,10 +1,12 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/objects.hpp"
+#else
 #ifndef GAME_RENDER_OBJECTS_H
 #define GAME_RENDER_OBJECTS_H
 
 #include <map>
 #include <string>
 
-#include <osg/Object>
 #include <osg/ref_ptr>
 
 #include "../mwworld/ptr.hpp"
@@ -33,26 +35,6 @@ namespace MWRender
 {
 
     class Animation;
-
-    class PtrHolder : public osg::Object
-    {
-    public:
-        PtrHolder(const MWWorld::Ptr& ptr)
-            : mPtr(ptr)
-        {
-        }
-
-        PtrHolder() {}
-
-        PtrHolder(const PtrHolder& copy, const osg::CopyOp& copyop)
-            : mPtr(copy.mPtr)
-        {
-        }
-
-        META_Object(MWRender, PtrHolder)
-
-        MWWorld::Ptr mPtr;
-    };
 
     class Objects
     {
@@ -98,3 +80,4 @@ namespace MWRender
     };
 }
 #endif
+#endif // OPENMW_CTR_NATIVE

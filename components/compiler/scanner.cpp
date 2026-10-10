@@ -77,6 +77,11 @@ namespace Compiler
                     mTolerantNames = tolerant;
                     return cont;
                 }
+                if (mPutbackCode == S_newline)
+                {
+                    mTolerantNames = false;
+                    mExpectName = false;
+                }
                 return parser.parseSpecial(mPutbackCode, mPutbackLoc, *this);
             }
 

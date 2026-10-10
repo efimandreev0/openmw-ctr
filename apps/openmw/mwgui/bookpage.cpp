@@ -9,7 +9,9 @@
 #include "MyGUI_TextureUtility.h"
 
 #include <components/misc/utf8stream.hpp>
+#ifndef OPENMW_CTR_NATIVE
 #include <components/sceneutil/depth.hpp>
+#endif
 #include <components/settings/values.hpp>
 
 namespace
@@ -1304,7 +1306,11 @@ namespace MWGui
 
             RenderXform renderXform(mCroppedParent, textFormat.mRenderItem->getRenderTarget()->getInfo());
 
+#ifdef OPENMW_CTR_NATIVE
+            float z = -1.f;
+#else
             float z = SceneUtil::AutoDepth::isReversed() ? 1.f : -1.f;
+#endif
 
             GlyphStream glyphStream(textFormat.mFont, static_cast<float>(mCoord.left),
                 static_cast<float>(mCoord.top - mViewTop), z /*mNode->getNodeDepth()*/, vertices, renderXform);

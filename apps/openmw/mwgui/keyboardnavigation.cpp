@@ -112,24 +112,8 @@ namespace MWGui
         }
 
         MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
-
-        if (focus == mCurrentFocus)
-        {
-            return;
-        }
-
-        // workaround incorrect key focus resets (fix in MyGUI TBD)
-        if (!shouldAcceptKeyFocus(focus) && shouldAcceptKeyFocus(mCurrentFocus)
-            && (!mModalWindow || isRootParent(mCurrentFocus, mModalWindow)))
-        {
-            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCurrentFocus);
-            focus = mCurrentFocus;
-        }
-
-        if (focus != mCurrentFocus)
-        {
+        if (shouldAcceptKeyFocus(focus))
             mCurrentFocus = focus;
-        }
     }
 
     void KeyboardNavigation::setDefaultFocus(MyGUI::Widget* window, MyGUI::Widget* defaultFocus)
@@ -205,6 +189,13 @@ namespace MWGui
             return false;
 
         MyGUI::Widget* focus = MyGUI::InputManager::getInstance().getKeyFocusWidget();
+
+        if (!shouldAcceptKeyFocus(focus) && shouldAcceptKeyFocus(mCurrentFocus)
+            && (!mModalWindow || isRootParent(mCurrentFocus, mModalWindow)))
+        {
+            MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCurrentFocus);
+            return true;
+        }
 
         bool isCycle = (direction == D_Prev || direction == D_Next);
 

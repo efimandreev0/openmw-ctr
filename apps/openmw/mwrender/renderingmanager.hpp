@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/renderingmanager.hpp"
+#else
 #ifndef OPENMW_MWRENDER_RENDERINGMANAGER_H
 #define OPENMW_MWRENDER_RENDERINGMANAGER_H
 
@@ -8,15 +11,16 @@
 #include <components/settings/settings.hpp>
 #include <components/vfs/pathutil.hpp>
 
-#include <osg/Light>
 #include <osg/ref_ptr>
 
 #include <osgUtil/IncrementalCompileOperation>
 
 #include <deque>
+#include <map>
 #include <memory>
 #include <span>
 #include <unordered_map>
+#include <vector>
 
 namespace osg
 {
@@ -63,6 +67,10 @@ namespace SceneUtil
     class WorkQueue;
     class LightManager;
     class UnrefQueue;
+    class PerViewUniformStateUpdater;
+    class SharedUniformStateUpdater;
+    class StateUpdater;
+    class Light;
 }
 
 namespace DetourNavigator
@@ -85,9 +93,6 @@ namespace Debug
 
 namespace MWRender
 {
-    class StateUpdater;
-    class SharedUniformStateUpdater;
-    class PerViewUniformStateUpdater;
     class IntersectionVisitorWithIgnoreList;
 
     class EffectManager;
@@ -111,7 +116,7 @@ namespace MWRender
     {
     public:
         RenderingManager(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
-            Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
+            Resource::ResourceSystem* resourceSystem, const std::shared_ptr<SceneUtil::WorkQueue>& workQueue,
             DetourNavigator::Navigator& navigator, const MWWorld::GroundcoverStore& groundcoverStore,
             SceneUtil::UnrefQueue& unrefQueue);
         ~RenderingManager();
@@ -127,7 +132,7 @@ namespace MWRender
         /// old scene graph nodes release their texture/mesh references.
         void flushUnrefQueueImmediate();
 
-        SceneUtil::WorkQueue* getWorkQueue();
+        const std::shared_ptr<SceneUtil::WorkQueue>& getWorkQueue() const;
         Terrain::World* getTerrain();
 
         void preloadCommonAssets();
@@ -144,7 +149,7 @@ namespace MWRender
         int skyGetSecundaPhase() const;
         void skySetMoonColour(bool red);
 
-        const osg::Vec4f& getSunLightPosition() const { return mSunLight->getPosition(); }
+        const osg::Vec4f& getSunLightPosition() const;
         void setSunDirection(const osg::Vec3f& direction);
         void setSunColour(const osg::Vec4f& diffuse, const osg::Vec4f& specular, float sunVis);
         void setNight(bool isNight) { mNight = isNight; }
@@ -175,8 +180,7 @@ namespace MWRender
         // (the cell isn't re-added on exit so addCell never fires).
         void setWaterCell(const MWWorld::CellStore* store);
 
-        /// Take a screenshot of w*h onto the given image, not including the GUI.
-        void screenshot(osg::Image* image, int w, int h);
+        std::vector<char> screenshot(int w, int h);
 
         struct RayResult
         {
@@ -189,12 +193,12 @@ namespace MWRender
         };
 
         RayResult castRay(const osg::Vec3f& origin, const osg::Vec3f& dest, bool ignorePlayer,
-            bool ignoreActors = false, std::span<const MWWorld::Ptr> ignoreList = {});
+            bool ignoreActors = false, bool ignoreTerrain = false, std::span<const MWWorld::Ptr> ignoreList = {});
 
         /// Return the object under the mouse cursor / crosshair position, given by nX and nY normalized screen
         /// coordinates, where (0,0) is the top left corner.
-        RayResult castCameraToViewportRay(
-            const float nX, const float nY, float maxDistance, bool ignorePlayer, bool ignoreActors = false);
+        RayResult castCameraToViewportRay(const float nX, const float nY, float maxDistance, bool ignorePlayer,
+            bool ignoreActors = false, bool ignoreTerrain = false);
 
         /// Get normalized screen coordinates of the bounding box's summit, where (0,0) is the top left corner
         osg::Vec2f getScreenCoords(const osg::BoundingBox& bb);
@@ -289,11 +293,16 @@ namespace MWRender
 
         void setNavMeshMode(Settings::NavMeshRenderMode value);
 
+        void setProjectionOffset(const osg::Vec2f& offset)
+        {
+            mProjectionOffset = offset;
+            mUpdateProjectionMatrix = true;
+        }
+        osg::Vec2f getProjectionOffset() const { return mProjectionOffset; }
+
     private:
         void updateTextureFiltering();
         void updateAmbient();
-        void setFogColor(const osg::Vec4f& color);
-
         struct WorldspaceChunkMgr
         {
             std::unique_ptr<Terrain::World> mTerrain;
@@ -312,7 +321,7 @@ namespace MWRender
         const bool mSkyBlending;
 
         osg::ref_ptr<osgUtil::IntersectionVisitor> getIntersectionVisitor(osgUtil::Intersector* intersector,
-            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList = {});
+            bool ignorePlayer, bool ignoreActors, bool ignoreTerrain, std::span<const MWWorld::Ptr> ignoreList = {});
 
         osg::ref_ptr<IntersectionVisitorWithIgnoreList> mIntersectionVisitor;
 
@@ -322,9 +331,9 @@ namespace MWRender
         Resource::ResourceSystem* mResourceSystem;
         SceneUtil::UnrefQueue& mUnrefQueue;
 
-        osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
+        std::shared_ptr<SceneUtil::WorkQueue> mWorkQueue;
 
-        osg::ref_ptr<osg::Light> mSunLight;
+        osg::ref_ptr<SceneUtil::Light> mSunLight;
 
         DetourNavigator::Navigator& mNavigator;
         std::unique_ptr<NavMesh> mNavMesh;
@@ -350,9 +359,9 @@ namespace MWRender
         std::unique_ptr<Camera> mCamera;
         osg::ref_ptr<Debug::DebugDrawer> mDebugDraw;
 
-        osg::ref_ptr<StateUpdater> mStateUpdater;
-        osg::ref_ptr<SharedUniformStateUpdater> mSharedUniformStateUpdater;
-        osg::ref_ptr<PerViewUniformStateUpdater> mPerViewUniformStateUpdater;
+        osg::ref_ptr<SceneUtil::StateUpdater> mStateUpdater;
+        osg::ref_ptr<SceneUtil::SharedUniformStateUpdater> mSharedUniformStateUpdater;
+        osg::ref_ptr<SceneUtil::PerViewUniformStateUpdater> mPerViewUniformStateUpdater;
 
         osg::Vec4f mAmbientColor;
         float mNightEyeFactor;
@@ -365,7 +374,9 @@ namespace MWRender
         float mFirstPersonFieldOfView;
         bool mUpdateProjectionMatrix = false;
         bool mNight = false;
+        osg::Vec2f mProjectionOffset;
         const MWWorld::GroundcoverStore& mGroundCoverStore;
+        std::map<std::string, std::string> mAppliedShadowDefines;
 
         void operator=(const RenderingManager&);
         RenderingManager(const RenderingManager&);
@@ -374,3 +385,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

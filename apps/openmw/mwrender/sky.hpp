@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/sky.hpp"
+#else
 #ifndef OPENMW_MWRENDER_SKY_H
 #define OPENMW_MWRENDER_SKY_H
 
@@ -17,7 +20,6 @@ namespace osg
 {
     class Group;
     class Node;
-    class Material;
     class PositionAttitudeTransform;
     class Camera;
 }
@@ -36,6 +38,7 @@ namespace Resource
 namespace SceneUtil
 {
     class RTTNode;
+    class Material;
 }
 
 namespace MWRender
@@ -136,7 +139,6 @@ namespace MWRender
         osg::ref_ptr<osg::Node> mAtmosphereDay;
 
         osg::ref_ptr<osg::PositionAttitudeTransform> mAtmosphereNightNode;
-        float mAtmosphereNightRoll;
         osg::ref_ptr<AtmosphereNightUpdater> mAtmosphereNightUpdater;
 
         osg::ref_ptr<AtmosphereUpdater> mAtmosphereUpdater;
@@ -203,3 +205,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

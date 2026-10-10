@@ -1,6 +1,8 @@
 #ifndef GAME_MWWORLD_WORLDIMP_H
 #define GAME_MWWORLD_WORLDIMP_H
 
+#include <memory>
+
 #include <osg/Timer>
 #include <osg/ref_ptr>
 
@@ -11,6 +13,7 @@
 #include <components/vfs/pathutil.hpp>
 
 #include "../mwbase/world.hpp"
+#include "../mwphysics/raycasting.hpp"
 
 #include "contentloader.hpp"
 #include "esmstore.hpp"
@@ -103,6 +106,7 @@ namespace MWWorld
         std::unique_ptr<DetourNavigator::Navigator> mNavigator;
         std::unique_ptr<MWRender::RenderingManager> mRendering;
         std::unique_ptr<MWWorld::Scene> mWorldScene;
+        std::unique_ptr<MWWorld::WeatherStore> mWeatherStore;
         std::unique_ptr<MWWorld::WeatherManager> mWeatherManager;
         std::unique_ptr<MWWorld::DateTimeManager> mTimeManager;
         std::unique_ptr<ProjectileManager> mProjectileManager;
@@ -122,6 +126,7 @@ namespace MWWorld
         float mSwimHeightScale;
 
         float mDistanceToFocusObject;
+        MWPhysics::RayCastingResult mFocusRay;
 
         bool mTeleportEnabled;
         bool mLevitationEnabled;
@@ -181,7 +186,6 @@ namespace MWWorld
             Loading::Listener* listener);
 
         float feetToGameUnits(float feet);
-        float getActivationDistancePlusTelekinesis();
 
         MWWorld::ConstPtr getClosestMarker(const MWWorld::ConstPtr& ptr, const ESM::RefId& id);
         MWWorld::ConstPtr getClosestMarkerFromExteriorPosition(const osg::Vec3f& worldPos, const ESM::RefId& id);
@@ -202,8 +206,12 @@ namespace MWWorld
             Loading::Listener* listener);
 
         // Must be called after `loadData`.
+#ifdef OPENMW_CTR_NATIVE
+        void init(Debug::Level maxRecastLogLevel, const std::shared_ptr<SceneUtil::WorkQueue>& workQueue);
+#else
         void init(Debug::Level maxRecastLogLevel, osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
-            SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue);
+            const std::shared_ptr<SceneUtil::WorkQueue>& workQueue, SceneUtil::UnrefQueue& unrefQueue);
+#endif
 
         virtual ~World();
 
@@ -249,6 +257,8 @@ namespace MWWorld
         bool isCellExterior() const override;
 
         bool isCellQuasiExterior() const override;
+
+        const std::set<CellStore*, std::less<>>& getActiveCells() const override;
 
         ESM::RefId getCurrentWorldspace() const;
 
@@ -312,16 +322,12 @@ namespace MWWorld
         bool toggleSky() override;
         ///< \return Resulting mode
 
-        void changeWeather(const ESM::RefId& region, const unsigned int id) override;
+        void changeWeather(ESM::RefId region, ESM::RefId id) override;
 
-        void changeWeather(const ESM::RefId& region, const ESM::RefId& id) override;
-
-        const std::vector<MWWorld::Weather>& getAllWeather() const override;
+        const MWWorld::WeatherStore& getAllWeather() const override;
 
         int getCurrentWeatherScriptId() const override;
         const MWWorld::Weather& getCurrentWeather() const override;
-        const MWWorld::Weather* getWeather(size_t index) const override;
-        const MWWorld::Weather* getWeather(const ESM::RefId& id) const override;
         int getNextWeatherScriptId() const override;
         const MWWorld::Weather* getNextWeather() const override;
 
@@ -333,9 +339,12 @@ namespace MWWorld
 
         int getSecundaPhase() const override;
 
+        std::vector<MWWorld::Moon> getCurrentMoons() const override;
+
         void setMoonColour(bool red) override;
 
-        void modRegion(const ESM::RefId& regionid, const std::vector<uint8_t>& chances) override;
+        void modRegion(ESM::RefId regionid, const std::map<ESM::RefId, uint8_t>& chances) override;
+        const std::map<ESM::RefId, uint8_t>& getRegionWeatherChances(ESM::RefId regionid) const override;
 
         void changeToInteriorCell(const std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos,
             bool changeEvent = true) override;
@@ -350,6 +359,8 @@ namespace MWWorld
         ///< Return pointer to the object the player is looking at, if it is within activation range
 
         float getDistanceToFocusObject() override;
+
+        const MWPhysics::RayCastingResult& getFocusRay() const override { return mFocusRay; }
 
         /// @note No-op for items in containers. Use ContainerStore::removeItem instead.
         void deleteObject(const Ptr& ptr) override;
@@ -398,7 +409,8 @@ namespace MWWorld
         const MWPhysics::RayCastingInterface* getRayCasting() const override;
 
         bool castRenderingRay(MWPhysics::RayCastingResult& res, const osg::Vec3f& from, const osg::Vec3f& to,
-            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList) override;
+            bool ignorePlayer, bool ignoreActors, bool ignoreTerrain,
+            std::span<const MWWorld::Ptr> ignoreList) override;
 
         void setActorCollisionMode(const Ptr& ptr, bool internal, bool external) override;
         bool isActorCollisionEnabled(const Ptr& ptr) override;
@@ -521,7 +533,7 @@ namespace MWWorld
         void reattachPlayerCamera() override;
 
         /// \todo this does not belong here
-        void screenshot(osg::Image* image, int w, int h) override;
+        std::vector<char> screenshot(int w, int h) override;
 
         /// Find center of exterior cell above land surface
         /// \return false if exterior with given name not exists, true otherwise
@@ -566,7 +578,7 @@ namespace MWWorld
         void launchMagicBolt(const ESM::RefId& spellId, const MWWorld::Ptr& caster, const osg::Vec3f& fallbackDirection,
             ESM::RefNum item) override;
         void launchProjectile(MWWorld::Ptr& actor, MWWorld::Ptr& projectile, const osg::Vec3f& worldPos,
-            const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength) override;
+            const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength, float attackWindUp) override;
         void updateProjectilesCasters() override;
 
         void applyLoopingParticles(const MWWorld::Ptr& ptr) const override;

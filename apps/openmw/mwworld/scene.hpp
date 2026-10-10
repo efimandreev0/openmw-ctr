@@ -115,7 +115,7 @@ namespace MWWorld
 
         std::vector<ESM::RefNum> mPagedRefs;
 
-        std::vector<osg::ref_ptr<SceneUtil::WorkItem>> mWorkItems;
+        std::vector<std::shared_ptr<SceneUtil::WorkItem>> mWorkItems;
 
         std::optional<ChangeCellGridRequest> mChangeCellGridRequest;
 
@@ -145,7 +145,7 @@ namespace MWWorld
         void loadCell(CellStore& cell, Loading::Listener* loadingListener, bool respawn, const osg::Vec3f& position,
             const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
 
-#if defined(__vita__) || defined(__3DS__)
+#if defined(__vita__) || (defined(__3DS__) && !defined(OPENMW_CTR_NATIVE))
         enum class CellLoadTier { Full, Lite };
         std::map<CellStore*, CellLoadTier> mCellLoadTiers;
 

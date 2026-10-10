@@ -1,6 +1,10 @@
 #ifndef OPENMW_COMPONENTS_MYGUIPLATFORM_MYGUIRENDERMANAGER_H
 #define OPENMW_COMPONENTS_MYGUIPLATFORM_MYGUIRENDERMANAGER_H
 
+#ifdef __3DS__
+#include "ctr/myguirendermanager.hpp"
+#else
+
 #include <MyGUI_RenderManager.h>
 
 #include <osg/ref_ptr>
@@ -124,5 +128,7 @@ namespace MyGUIPlatform
     };
 
 }
+
+#endif // __3DS__
 
 #endif

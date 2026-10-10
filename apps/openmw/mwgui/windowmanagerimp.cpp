@@ -10,13 +10,21 @@
 #include <filesystem>
 #include <thread>
 
+#include <osg/Vec3>
+
+#ifdef OPENMW_CTR_NATIVE
+#include "../ctr/ctrframe.hpp"
+#else
 #include <osgViewer/Viewer>
+#endif
 
 #include <MyGUI_ClipboardManager.h>
 #include <MyGUI_FactoryManager.h>
 #include <MyGUI_InputManager.h>
 #include <MyGUI_LanguageManager.h>
 #include <MyGUI_LayerManager.h>
+#include <MyGUI_OverlappedLayer.h>
+#include <MyGUI_SharedLayer.h>
 #include <MyGUI_PointerManager.h>
 #include <MyGUI_UString.h>
 
@@ -33,9 +41,11 @@
 
 #include <components/fontloader/fontloader.hpp>
 
+#ifndef OPENMW_CTR_NATIVE
 #include <components/resource/imagemanager.hpp>
-#include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#endif
+#include <components/resource/resourcesystem.hpp>
 
 #include <components/sceneutil/workqueue.hpp>
 
@@ -56,7 +66,9 @@
 #include <components/l10n/manager.hpp>
 
 #include <components/lua_ui/util.hpp>
+#ifndef OPENMW_NO_LUA
 #include <components/lua_ui/widget.hpp>
+#endif
 
 #include <components/settings/values.hpp>
 
@@ -111,7 +123,9 @@
 #include "loadingscreen.hpp"
 #include "mainmenu.hpp"
 #include "merchantrepair.hpp"
+#ifndef OPENMW_CTR_NATIVE
 #include "postprocessorhud.hpp"
+#endif
 #include "quickkeysmenu.hpp"
 #include "recharge.hpp"
 #include "repair.hpp"
@@ -126,7 +140,9 @@
 #include "tradewindow.hpp"
 #include "trainingwindow.hpp"
 #include "travelwindow.hpp"
+#ifndef OPENMW_CTR_NATIVE
 #include "videowidget.hpp"
+#endif
 #include "waitdialog.hpp"
 
 namespace MWGui
@@ -152,9 +168,10 @@ namespace MWGui
     }
 
     WindowManager::WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
-        Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue, const std::filesystem::path& logpath,
-        bool consoleOnlyScripts, Translation::Storage& translationDataStorage, ToUTF8::FromType encoding,
-        bool exportFonts, const std::string& versionDescription, bool useShaders, Files::ConfigurationManager& cfgMgr)
+        Resource::ResourceSystem* resourceSystem, const std::shared_ptr<SceneUtil::WorkQueue>& workQueue,
+        const std::filesystem::path& logpath, bool consoleOnlyScripts, Translation::Storage& translationDataStorage,
+        ToUTF8::FromType encoding, bool exportFonts, const std::string& versionDescription,
+        Files::ConfigurationManager& cfgMgr)
         : mOldUpdateMask(0)
         , mOldCullMask(0)
         , mStore(nullptr)
@@ -196,6 +213,7 @@ namespace MWGui
         , mHudEnabled(true)
         , mCursorVisible(true)
         , mCursorActive(true)
+        , mCursorInteractionEnabled(false)
         , mPlayerBounty(-1)
         , mGuiModes()
         , mGarbageDialogs()
@@ -215,8 +233,13 @@ namespace MWGui
 
         mScalingFactor = Settings::gui().mScalingFactor * (dw / w);
         constexpr VFS::Path::NormalizedView resourcePath("mygui");
+#ifdef OPENMW_CTR_NATIVE
+        mGuiPlatform = std::make_unique<MyGUIPlatform::Platform>(
+            resourceSystem->getVFS(), mScalingFactor, resourcePath, logpath / "MyGUI.log");
+#else
         mGuiPlatform = std::make_unique<MyGUIPlatform::Platform>(viewer, guiRoot, resourceSystem->getImageManager(),
             resourceSystem->getVFS(), mScalingFactor, resourcePath, logpath / "MyGUI.log");
+#endif
 
         mGui = std::make_unique<MyGUI::Gui>();
         mGui->initialise({});
@@ -237,12 +260,16 @@ namespace MWGui
         MyGUI::FactoryManager::getInstance().registerFactory<MWGui::Widgets::MWSpellEffect>("Widget");
         MyGUI::FactoryManager::getInstance().registerFactory<MWGui::Widgets::MWDynamicStat>("Widget");
         MyGUI::FactoryManager::getInstance().registerFactory<MWGui::Window>("Widget");
+#ifndef OPENMW_CTR_NATIVE
         MyGUI::FactoryManager::getInstance().registerFactory<VideoWidget>("Widget");
+#endif
         MyGUI::FactoryManager::getInstance().registerFactory<BackgroundImage>("Widget");
         MyGUI::FactoryManager::getInstance().registerFactory<MyGUIPlatform::AdditiveLayer>("Layer");
         MyGUI::FactoryManager::getInstance().registerFactory<MyGUIPlatform::ScalingLayer>("Layer");
         BookPage::registerMyGUIComponents();
+#ifndef OPENMW_CTR_NATIVE
         PostProcessorHud::registerMyGUIComponents();
+#endif
         ItemView::registerComponents();
         ItemChargeView::registerComponents();
         ItemWidget::registerComponents();
@@ -263,7 +290,11 @@ namespace MWGui
         mKeyboardNavigation->setEnabled(keyboardNav);
         Gui::ImageButton::setDefaultNeedKeyFocus(keyboardNav);
 
+#ifdef OPENMW_CTR_NATIVE
+        auto loadingScreen = std::make_unique<LoadingScreen>(mResourceSystem);
+#else
         auto loadingScreen = std::make_unique<LoadingScreen>(mResourceSystem, mViewer);
+#endif
         mLoadingScreen = loadingScreen.get();
         mWindows.push_back(std::move(loadingScreen));
 
@@ -271,7 +302,11 @@ namespace MWGui
         // Vita SDL2 has no hardware cursor support — use MyGUI's software pointer
         MyGUI::InputManager::getInstance().eventChangeKeyFocus
             += MyGUI::newDelegate(this, &WindowManager::onKeyFocusChanged);
+#ifdef OPENMW_CTR_NATIVE
+        MyGUI::PointerManager::getInstance().setVisible(false);
+#else
         MyGUI::PointerManager::getInstance().setVisible(true);
+#endif
 #else
         // set up the hardware cursor manager
         mCursorManager = std::make_unique<SDLUtil::SDLCursorManager>();
@@ -298,10 +333,12 @@ namespace MWGui
         mVideoBackground->setNeedMouseFocus(true);
         mVideoBackground->setNeedKeyFocus(true);
 
+#ifndef OPENMW_CTR_NATIVE
         mVideoWidget = mVideoBackground->createWidgetReal<VideoWidget>("ImageBox", 0, 0, 1, 1, MyGUI::Align::Default);
         mVideoWidget->setNeedMouseFocus(true);
         mVideoWidget->setNeedKeyFocus(true);
         mVideoWidget->setVFS(resourceSystem->getVFS());
+#endif
 
         // Removes default MyGUI system clipboard implementation, which supports windows only
         MyGUI::ClipboardManager::getInstance().eventClipboardChanged.clear();
@@ -312,11 +349,12 @@ namespace MWGui
         MyGUI::ClipboardManager::getInstance().eventClipboardRequested
             += MyGUI::newDelegate(this, &WindowManager::onClipboardRequested);
 
+#ifndef OPENMW_CTR_NATIVE
         mVideoWrapper = std::make_unique<SDLUtil::VideoWrapper>(window, viewer);
         mVideoWrapper->setGammaContrast(Settings::video().mGamma, Settings::video().mContrast);
 
-        if (useShaders)
-            mGuiPlatform->getRenderManagerPtr()->enableShaders(mResourceSystem->getSceneManager()->getShaderManager());
+        mGuiPlatform->getRenderManagerPtr()->enableShaders(mResourceSystem->getSceneManager()->getShaderManager());
+#endif
 
         mStatsWatcher = std::make_unique<StatsWatcher>();
     }
@@ -348,7 +386,7 @@ namespace MWGui
         mGuiModeStates[GM_MainMenu] = GuiModeState(menu.get());
         mWindows.push_back(std::move(menu));
 
-        mLocalMapRender = std::make_unique<MWRender::LocalMap>(mViewer->getSceneData()->asGroup());
+        mLocalMapRender = std::make_unique<MWRender::LocalMap>(sceneRoot());
         UI_CRUMB("LocalMap");
         auto map = std::make_unique<MapWindow>(mCustomMarkers, mDragAndDrop.get(), mLocalMapRender.get(), mWorkQueue);
         UI_CRUMB("MapWindow");
@@ -366,7 +404,7 @@ namespace MWGui
         trackWindow(mStatsWindow, makeStatsWindowSettingValues());
 
         auto inventoryWindow = std::make_unique<InventoryWindow>(
-            *mDragAndDrop, *mItemTransfer, mViewer->getSceneData()->asGroup(), mResourceSystem);
+            *mDragAndDrop, *mItemTransfer, sceneRoot(), mResourceSystem);
         UI_CRUMB("InventoryWindow");
         mInventoryWindow = inventoryWindow.get();
         mWindows.push_back(std::move(inventoryWindow));
@@ -559,6 +597,20 @@ namespace MWGui
         mInventoryTabsOverlay = inventoryTabsOverlay.get();
         mWindows.push_back(std::move(inventoryTabsOverlay));
 
+#ifdef OPENMW_CTR_NATIVE
+        {
+            MyGUIPlatform::RenderManager* renderManager = mGuiPlatform->getRenderManagerPtr();
+            const int offset = renderManager->getBottomScreenOffset();
+            const int width = renderManager->getViewSize().width - 2 * offset;
+            for (WindowBase* overlay : { static_cast<WindowBase*>(mControllerButtonsOverlay),
+                     static_cast<WindowBase*>(mInventoryTabsOverlay) })
+            {
+                MyGUI::IntCoord coord = overlay->mMainWidget->getCoord();
+                overlay->mMainWidget->setCoord(offset, coord.top, width, coord.height);
+            }
+        }
+#endif
+
         mControllerTooltipEnabled = Settings::gui().mControllerTooltips;
         mActiveControllerWindows[GM_Inventory] = 1; // Start on Inventory page
 
@@ -568,7 +620,7 @@ namespace MWGui
         mHud->setVisible(true);
         UI_CRUMB("Overlays");
 
-        mCharGen = std::make_unique<CharacterCreation>(mViewer->getSceneData()->asGroup(), mResourceSystem);
+        mCharGen = std::make_unique<CharacterCreation>(sceneRoot(), mResourceSystem);
 
         updatePinnedWindows();
 
@@ -668,7 +720,7 @@ namespace MWGui
             disallowAll();
 
             mStatsWatcher->removeListener(mCharGen.get());
-            mCharGen = std::make_unique<CharacterCreation>(mViewer->getSceneData()->asGroup(), mResourceSystem);
+            mCharGen = std::make_unique<CharacterCreation>(sceneRoot(), mResourceSystem);
             mStatsWatcher->addListener(mCharGen.get());
         }
         else
@@ -724,19 +776,69 @@ namespace MWGui
         mGarbageDialogs.clear();
     }
 
+#ifdef OPENMW_CTR_NATIVE
+    void WindowManager::renderGui(bool bottomScreen)
+    {
+        MyGUIPlatform::RenderManager* renderManager = mGuiPlatform->getRenderManagerPtr();
+        if (!bottomScreen)
+            renderManager->update();
+        renderManager->render(bottomScreen);
+    }
+
+    void WindowManager::setBottomScreenLayers(std::set<std::string> layers, std::set<std::string> bothScreens)
+    {
+        MyGUI::LayerManager::EnumeratorLayer enumerator = MyGUI::LayerManager::getInstance().getEnumerator();
+        while (enumerator.next())
+        {
+            MyGUI::ILayer* layer = enumerator.current();
+            if (layers.count(layer->getName()) != 0 || bothScreens.count(layer->getName()) != 0
+                || layer->getName() == "InputBlocker")
+                continue;
+            if (auto* overlapped = dynamic_cast<MyGUI::OverlappedLayer*>(layer))
+                overlapped->setPick(false);
+            else if (auto* shared = dynamic_cast<MyGUI::SharedLayer*>(layer))
+                shared->setPick(false);
+        }
+        mGuiPlatform->getRenderManagerPtr()->setBottomScreenLayers(std::move(layers), std::move(bothScreens));
+    }
+
+    bool WindowManager::hasBottomScreen() const
+    {
+        return mGuiPlatform->getRenderManagerPtr()->hasBottomScreenLayers();
+    }
+
+    bool WindowManager::isSceneEnabled() const
+    {
+        return mCullMask != (MWRender::Mask_GUI | MWRender::Mask_PreCompile);
+    }
+#endif
+
+    osg::Group* WindowManager::sceneRoot() const
+    {
+#ifdef OPENMW_CTR_NATIVE
+        return nullptr;
+#else
+        return mViewer->getSceneData()->asGroup();
+#endif
+    }
+
     void WindowManager::enableScene(bool enable)
     {
         unsigned int disablemask = MWRender::Mask_GUI | MWRender::Mask_PreCompile;
         if (!enable && getCullMask() != disablemask)
         {
+#ifndef OPENMW_CTR_NATIVE
             mOldUpdateMask = mViewer->getUpdateVisitor()->getTraversalMask();
-            mOldCullMask = getCullMask();
             mViewer->getUpdateVisitor()->setTraversalMask(disablemask);
+#endif
+            mOldCullMask = getCullMask();
             setCullMask(disablemask);
         }
         else if (enable && getCullMask() == disablemask)
         {
+#ifndef OPENMW_CTR_NATIVE
             mViewer->getUpdateVisitor()->setTraversalMask(mOldUpdateMask);
+#endif
             setCullMask(mOldCullMask);
         }
     }
@@ -765,12 +867,14 @@ namespace MWGui
 
         MWBase::Environment::get().getInputManager()->changeInputMode(!gameMode);
 
-        mInputBlocker->setVisible(gameMode);
+        mInputBlocker->setVisible(gameMode && !mCursorInteractionEnabled);
 
         if (loading)
             setCursorVisible(mMessageBoxManager && mMessageBoxManager->isInteractiveMessageBox());
         else
             setCursorVisible(!gameMode);
+
+        updateMouseEmulationCursor();
 
         if (gameMode)
             setKeyFocusWidget(nullptr);
@@ -916,14 +1020,20 @@ namespace MWGui
                     std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 else
                 {
+#ifdef OPENMW_CTR_NATIVE
+                    CtrFrame::present(true);
+#else
                     mViewer->eventTraversal();
                     mViewer->updateTraversal();
                     mViewer->renderingTraversals();
+#endif
                 }
+#ifndef OPENMW_CTR_NATIVE
                 // at the time this function is called we are in the middle of a frame,
                 // so out of order calls are necessary to get a correct frameNumber for the next frame.
                 // refer to the advance() and frame() order in Engine::go()
                 mViewer->advance(mViewer->getFrameStamp()->getSimulationTime());
+#endif
 
                 frameRateLimiter.limit();
             }
@@ -1189,6 +1299,8 @@ namespace MWGui
         if (mInventoryTabsOverlay && mInventoryTabsOverlay->isVisible())
             mInventoryTabsOverlay->onFrame(frameDuration);
 
+        updateMouseEmulationCursor();
+
         if (!gameRunning)
             return;
 
@@ -1229,8 +1341,10 @@ namespace MWGui
 
         mHud->onFrame(frameDuration);
 
+#ifndef OPENMW_CTR_NATIVE
         if (mPostProcessorHud)
             mPostProcessorHud->onFrame(frameDuration);
+#endif
 
         if (mCharGen)
             mCharGen->onFrame(frameDuration);
@@ -1350,7 +1464,7 @@ namespace MWGui
     void WindowManager::setCursorVisible(bool visible)
     {
         mCursorVisible = visible;
-#if defined(__vita__) || defined(__3DS__)
+#if defined(__vita__) || (defined(__3DS__) && !defined(OPENMW_CTR_NATIVE))
         MyGUI::PointerManager::getInstance().setVisible(mCursorVisible && mCursorActive);
 #endif
     }
@@ -1358,9 +1472,16 @@ namespace MWGui
     void WindowManager::setCursorActive(bool active)
     {
         mCursorActive = active;
-#if defined(__vita__) || defined(__3DS__)
+#if defined(__vita__) || (defined(__3DS__) && !defined(OPENMW_CTR_NATIVE))
         MyGUI::PointerManager::getInstance().setVisible(mCursorVisible && mCursorActive);
 #endif
+    }
+
+    void WindowManager::setCursorInteractionEnabled(bool enabled)
+    {
+        mCursorInteractionEnabled = enabled;
+        if (mInputBlocker)
+            mInputBlocker->setVisible(!isGuiMode() && !mCursorInteractionEnabled);
     }
 
     void WindowManager::onRetrieveTag(const MyGUI::UString& tag, MyGUI::UString& result)
@@ -1436,17 +1557,23 @@ namespace MWGui
                     || setting.second == "window mode" || setting.second == "window border"))
                 changeRes = true;
 
+#ifndef OPENMW_CTR_NATIVE
             else if (setting.first == "Video" && setting.second == "vsync mode")
                 mVideoWrapper->setSyncToVBlank(Settings::video().mVsyncMode);
             else if (setting.first == "Video" && (setting.second == "gamma" || setting.second == "contrast"))
                 mVideoWrapper->setGammaContrast(Settings::video().mGamma, Settings::video().mContrast);
+#endif
         }
 
+#ifndef OPENMW_CTR_NATIVE
         if (changeRes)
         {
             mVideoWrapper->setVideoMode(Settings::video().mResolutionX, Settings::video().mResolutionY,
                 Settings::video().mWindowMode, Settings::video().mWindowBorder);
         }
+#else
+        (void)changeRes;
+#endif
     }
 
     void WindowManager::windowResized(int x, int y)
@@ -1489,8 +1616,12 @@ namespace MWGui
         for (const auto& window : mWindows)
             window->onResChange(x, y);
 
+        LuaUi::updateAllElementCoords();
+
         // Re-apply any controller-specific window changes.
         reapplyActiveControllerWindow();
+
+        MWBase::Environment::get().getLuaManager()->viewportResized(x, y);
 
         // TODO: check if any windows are now off-screen and move them back if so
     }
@@ -1512,8 +1643,9 @@ namespace MWGui
 
     void WindowManager::onCursorChange(std::string_view name)
     {
+        mMyGuiCursor = name;
 #if !defined(__vita__) && !defined(__3DS__)
-        mCursorManager->cursorChanged(name);
+        mCursorManager->cursorChanged(mLuaCursorOverride.empty() ? name : mLuaCursorOverride);
 #endif
     }
 
@@ -1595,17 +1727,25 @@ namespace MWGui
 
     void WindowManager::setCullMask(uint32_t mask)
     {
+#ifdef OPENMW_CTR_NATIVE
+        mCullMask = mask;
+#else
         mViewer->getCamera()->setCullMask(mask);
 
         // We could check whether stereo is enabled here, but these methods are
         // trivial and have no effect in mono or multiview so just call them regardless.
         mViewer->getCamera()->setCullMaskLeft(mask);
         mViewer->getCamera()->setCullMaskRight(mask);
+#endif
     }
 
     uint32_t WindowManager::getCullMask()
     {
+#ifdef OPENMW_CTR_NATIVE
+        return mCullMask;
+#else
         return mViewer->getCamera()->getCullMask();
+#endif
     }
 
     void WindowManager::popGuiMode(bool forceExit)
@@ -1882,7 +2022,11 @@ namespace MWGui
 
     bool WindowManager::isPostProcessorHudVisible() const
     {
+#ifdef OPENMW_CTR_NATIVE
+        return false;
+#else
         return mPostProcessorHud && mPostProcessorHud->isVisible();
+#endif
     }
 
     bool WindowManager::isSettingsWindowVisible() const
@@ -1909,7 +2053,7 @@ namespace MWGui
 
     void WindowManager::allowMouse()
     {
-        mInputBlocker->setVisible(!isGuiMode());
+        mInputBlocker->setVisible(!isGuiMode() && !mCursorInteractionEnabled);
     }
 
     void WindowManager::notifyInputActionBound()
@@ -1990,6 +2134,40 @@ namespace MWGui
         onCursorChange(name);
     }
 
+    void WindowManager::createLuaCursor(const std::string& name, const std::string& path, int width, int height,
+        int hotspotX, int hotspotY, double rotation)
+    {
+#ifdef OPENMW_CTR_NATIVE
+#else
+        osg::ref_ptr<osg::Image> image = mResourceSystem->getImageManager()->getImage(VFS::Path::Normalized(path));
+        if (!image.valid())
+        {
+            Log(Debug::Warning) << "Failed to load Lua cursor texture: " << path;
+            return;
+        }
+        mCursorManager->createCursor(name, rotation, image, hotspotX, hotspotY, width, height);
+#endif
+    }
+
+    void WindowManager::removeLuaCursor(const std::string& name)
+    {
+        if (mLuaCursorOverride == name)
+            mLuaCursorOverride.clear();
+        mCursorManager->removeCursor(name);
+        mCursorManager->cursorChanged(getCurrentCursorName());
+    }
+
+    void WindowManager::setLuaCursorOverride(const std::string& name)
+    {
+        mLuaCursorOverride = name;
+        mCursorManager->cursorChanged(getCurrentCursorName());
+    }
+
+    std::string WindowManager::getCurrentCursorName() const
+    {
+        return mLuaCursorOverride.empty() ? mMyGuiCursor : mLuaCursorOverride;
+    }
+
     void WindowManager::showSoulgemDialog(MWWorld::Ptr item)
     {
         mSoulgemDialog->show(item);
@@ -2018,13 +2196,23 @@ namespace MWGui
     void WindowManager::onKeyFocusChanged(MyGUI::Widget* widget)
     {
 #if !defined(__vita__) && !defined(__3DS__)
-        // On Vita, SDL_StartTextInput does nothing useful (no soft keyboard) but
         // makes SDL_IsTextInputActive() return true, which blocks controller A
-        // button processing in gamepadToGuiControl(). Skip it entirely on Vita.
-        bool isEditBox = widget && widget->castType<MyGUI::EditBox>(false);
-        LuaUi::WidgetExtension* luaWidget = dynamic_cast<LuaUi::WidgetExtension*>(widget);
-        bool capturesInput = luaWidget ? luaWidget->isTextInput() : isEditBox;
-        if (widget && capturesInput)
+        bool capturesInput = false;
+        if (widget)
+        {
+            LuaUi::WidgetExtension* luaWidget = dynamic_cast<LuaUi::WidgetExtension*>(widget);
+            if (luaWidget)
+                capturesInput = luaWidget->isTextInput();
+            else
+                capturesInput = widget->castType<MyGUI::EditBox>(false);
+        }
+
+
+        const bool inputActive = SDL_IsTextInputActive() == SDL_TRUE;
+        if (capturesInput == inputActive)
+            return;
+
+        if (capturesInput)
             SDL_StartTextInput();
         else
             SDL_StopTextInput();
@@ -2053,6 +2241,24 @@ namespace MWGui
     bool WindowManager::getCursorVisible()
     {
         return mCursorVisible && mCursorActive;
+    }
+
+    void WindowManager::updateMouseEmulationCursor()
+    {
+        if (!mHud)
+            return;
+
+        bool mouseEmulation = MWBase::Environment::get().getInputManager()->joystickLastUsed()
+            && MWBase::Environment::get().getInputManager()->isGamepadGuiCursorEnabled();
+
+        bool showCursor = mouseEmulation && Settings::hud().mMouseEmulationCursor && getCursorVisible();
+        mHud->setMouseEmulationCursorVisible(showCursor);
+
+        if (showCursor)
+        {
+            MyGUI::IntPoint pos = MyGUI::InputManager::getInstance().getMousePosition();
+            mHud->setMouseEmulationCursorPosition(pos.left, pos.top);
+        }
     }
 
     void WindowManager::trackWindow(Layout* layout, const WindowSettingValues& settings)
@@ -2218,6 +2424,9 @@ namespace MWGui
 
     void WindowManager::playVideo(std::string_view name, bool allowSkipping, bool overrideSounds)
     {
+#ifdef OPENMW_CTR_NATIVE
+        Log(Debug::Info) << "3DS: video playback is not supported, skipping " << name;
+#else
 #ifdef __3DS__
         // 64MB effectively disables playback for now: the intro left its
         // frame textures in linear memory and starved the interior load
@@ -2249,6 +2458,9 @@ namespace MWGui
 
         mVideoBackground->setVisible(true);
 
+        if (mInputBlocker)
+            mInputBlocker->setVisible(false);
+
         bool cursorWasVisible = mCursorVisible;
         setCursorVisible(false);
 
@@ -2276,6 +2488,8 @@ namespace MWGui
                 if (mVideoWidget->isPaused())
                     mVideoWidget->resume();
 
+                mVideoWidget->commitFrame();
+
                 mViewer->eventTraversal();
                 mViewer->updateTraversal();
                 mViewer->renderingTraversals();
@@ -2299,13 +2513,18 @@ namespace MWGui
         updateVisible();
 
         mVideoBackground->setVisible(false);
+#endif
     }
 
     void WindowManager::sizeVideo(int screenWidth, int screenHeight)
     {
+#ifdef OPENMW_CTR_NATIVE
+        mVideoBackground->setSize(screenWidth, screenHeight);
+#else
         // Use black bars to correct aspect ratio
         mVideoBackground->setSize(screenWidth, screenHeight);
         mVideoWidget->autoResize(Settings::gui().mStretchMenuBackground);
+#endif
     }
 
     void WindowManager::exitCurrentModal()
@@ -2363,8 +2582,11 @@ namespace MWGui
 
     void WindowManager::onVideoKeyPressed(MyGUI::Widget* /*sender*/, MyGUI::KeyCode key, MyGUI::Char value)
     {
+#ifdef OPENMW_CTR_NATIVE
+#else
         if (key == MyGUI::KeyCode::Escape)
             mVideoWidget->stop();
+#endif
     }
 
     void WindowManager::updatePinnedWindows()
@@ -2507,6 +2729,8 @@ namespace MWGui
 
     void WindowManager::togglePostProcessorHud()
     {
+#ifdef OPENMW_CTR_NATIVE
+#else
         auto* pp = MWBase::Environment::get().getWorld()->getPostProcessor();
         if (!pp || !pp->isEnabled())
         {
@@ -2525,6 +2749,7 @@ namespace MWGui
             mKeyboardNavigation->restoreFocus(mGuiModes.back());
 
         updateVisible();
+#endif
     }
 
     void WindowManager::toggleSettingsWindow()
@@ -2597,6 +2822,8 @@ namespace MWGui
 
     void WindowManager::createCursors()
     {
+#ifdef OPENMW_CTR_NATIVE
+#else
         MyGUI::ResourceManager::EnumeratorPtr enumerator = MyGUI::ResourceManager::getInstance().getEnumerator();
         while (enumerator.next())
         {
@@ -2611,16 +2838,23 @@ namespace MWGui
 
             if (image.valid())
             {
-                // everything looks good, send it to the cursor manager
-                const Uint8 hotspotX = static_cast<Uint8>(imgSetPointer->getHotSpot().left);
-                const Uint8 hotspotY = static_cast<Uint8>(imgSetPointer->getHotSpot().top);
-                int rotation = imgSetPointer->getRotation();
-                MyGUI::IntSize pointerSize = imgSetPointer->getSize();
+                const float guiUiScale = Settings::gui().mScalingFactor;
 
-                mCursorManager->createCursor(imgSetPointer->getResourceName(), rotation, image, hotspotX, hotspotY,
-                    pointerSize.width, pointerSize.height);
+                // everything looks good, send it to the cursor manager
+                const Uint8 hotspotX = static_cast<Uint8>(guiUiScale * imgSetPointer->getHotSpot().left);
+                const Uint8 hotspotY = static_cast<Uint8>(guiUiScale * imgSetPointer->getHotSpot().top);
+
+                MyGUI::IntSize pointerSize = imgSetPointer->getSize();
+                const Uint8 width = static_cast<Uint8>(guiUiScale * pointerSize.width);
+                const Uint8 height = static_cast<Uint8>(guiUiScale * pointerSize.height);
+
+                int rotation = imgSetPointer->getRotation();
+
+                mCursorManager->createCursor(
+                    imgSetPointer->getResourceName(), rotation, image, hotspotX, hotspotY, width, height);
             }
         }
+#endif
     }
 
     void WindowManager::createTextures()

@@ -2,13 +2,18 @@
 
 #include <MyGUI_RenderManager.h>
 
+#include <algorithm>
+
 #include "resources.hpp"
 
 namespace LuaUi
 {
     void LuaTileRect::_setAlign(const MyGUI::IntSize& /*oldSize*/)
     {
-        mCoord.set(0, 0, mCroppedParent->getWidth(), mCroppedParent->getHeight());
+        const int width = std::max(0, mCroppedParent->getWidth() - mPadding.mLeft - mPadding.mRight);
+        const int height = std::max(0, mCroppedParent->getHeight() - mPadding.mTop - mPadding.mBottom);
+
+        mCoord.set(mPadding.mLeft, mPadding.mTop, width, height);
         mTileSize = mSetTileSize;
 
         // zero tilesize stands for not tiling
@@ -67,5 +72,19 @@ namespace LuaUi
         setColour(propertyValue("color", MyGUI::Colour(1, 1, 1, 1)));
 
         WidgetExtension::updateProperties();
+
+        mTileRect->updatePadding(mPadding);
+        mTileRect->_setAlign(widget()->getSize());
+    }
+
+    const std::vector<std::string_view>& LuaImage::allUsedProperties() const
+    {
+        static std::vector<std::string_view> usedProps = std::invoke([this] {
+            std::vector<std::string_view> props = { "resource", "tileH", "tileV", "color" };
+            auto baseProps = WidgetExtension::allUsedProperties();
+            props.insert(props.end(), baseProps.begin(), baseProps.end());
+            return props;
+        });
+        return usedProps;
     }
 }

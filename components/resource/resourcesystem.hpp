@@ -76,11 +76,13 @@ namespace Resource
         void releaseGLObjects(osg::State* state);
 
     private:
+#ifndef __3DS__
         std::unique_ptr<SceneManager> mSceneManager;
         std::unique_ptr<ImageManager> mImageManager;
         std::unique_ptr<BgsmFileManager> mBgsmFileManager;
-        std::unique_ptr<NifFileManager> mNifFileManager;
         std::unique_ptr<KeyframeManager> mKeyframeManager;
+#endif
+        std::unique_ptr<NifFileManager> mNifFileManager;
         std::unique_ptr<AnimBlendRulesManager> mAnimBlendRulesManager;
 
         // Store the base classes separately to get convenient access to the common interface

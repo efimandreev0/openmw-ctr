@@ -1,9 +1,12 @@
 #include "miscextensions.hpp"
 
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <iomanip>
+#include <set>
 #include <sstream>
+#include <string_view>
 
 #include <components/compiler/extensions.hpp>
 #include <components/compiler/locals.hpp>
@@ -19,7 +22,9 @@
 #include <components/misc/rng.hpp>
 
 #include <components/resource/resourcesystem.hpp>
+#ifndef OPENMW_CTR_NATIVE
 #include <components/resource/scenemanager.hpp>
+#endif
 
 #include <components/sceneutil/positionattitudetransform.hpp>
 
@@ -47,7 +52,9 @@
 
 #include <components/files/conversion.hpp>
 #include <components/misc/strings/conversion.hpp>
+#ifndef OPENMW_CTR_NATIVE
 #include <components/sceneutil/util.hpp>
+#endif
 #include <components/vfs/manager.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -73,6 +80,7 @@
 #include "../mwmechanics/spellcasting.hpp"
 
 #include "../mwrender/animation.hpp"
+#include "../mwrender/npcanimation.hpp"
 
 #include "interpretercontext.hpp"
 #include "ref.hpp"
@@ -80,9 +88,16 @@
 namespace
 {
 
+    constexpr std::array<std::string_view, ESM::PRT_Count> sPartNames = { "Head", "Hair", "Neck", "Cuirass", "Groin",
+        "Skirt", "Right Hand", "Left Hand", "Right Wrist", "Left Wrist", "Shield", "Right Forearm", "Left Forearm",
+        "Right Upperarm", "Left Upperarm", "Right Foot", "Left Foot", "Right Ankle", "Left Ankle", "Right Knee",
+        "Left Knee", "Right Leg", "Left Leg", "Right Pauldron", "Left Pauldron", "Weapon", "Tail" };
+
+#ifndef OPENMW_CTR_NATIVE
     struct TextureFetchVisitor : osg::NodeVisitor
     {
         std::vector<std::pair<std::string, std::string>> mTextures;
+        std::set<const osg::Node*> mSkippedNodes;
 
         TextureFetchVisitor(osg::NodeVisitor::TraversalMode mode = TRAVERSE_ALL_CHILDREN)
             : osg::NodeVisitor(mode)
@@ -91,6 +106,9 @@ namespace
 
         void apply(osg::Node& node) override
         {
+            if (mSkippedNodes.contains(&node))
+                return;
+
             const osg::StateSet* stateset = node.getStateSet();
             if (stateset)
             {
@@ -114,6 +132,31 @@ namespace
             traverse(node);
         }
     };
+
+    void printTextures(std::ostream& msg, const TextureFetchVisitor& visitor, const VFS::Manager& vfs)
+    {
+        std::string lastTextureSrc;
+        for (const auto& [textureName, fileName] : visitor.mTextures)
+        {
+            std::string textureSrc;
+            if (!fileName.empty())
+                textureSrc = vfs.getArchive(fileName);
+
+            if (lastTextureSrc.empty() || textureSrc != lastTextureSrc)
+            {
+                lastTextureSrc = std::move(textureSrc);
+                if (lastTextureSrc.empty())
+                    lastTextureSrc = "[No Source]";
+
+                msg << "  " << lastTextureSrc << std::endl;
+            }
+            msg << "    ";
+            msg << (textureName.empty() ? "[Anonymous]: " : textureName) << ": ";
+            msg << (fileName.empty() ? "[No File]" : fileName) << std::endl;
+        }
+    }
+
+#endif
 
     void addToLevList(ESM::LevelledListBase* list, const ESM::RefId& itemId, uint16_t level)
     {
@@ -1498,13 +1541,22 @@ namespace MWScript
                         const std::string archive = vfs->getArchive(model);
                         if (!archive.empty())
                             msg << "(" << archive << ")" << std::endl;
+#ifndef OPENMW_CTR_NATIVE
                         TextureFetchVisitor visitor;
+                        const auto* npcAnimation = dynamic_cast<const MWRender::NpcAnimation*>(
+                            MWBase::Environment::get().getWorld()->getAnimation(ptr));
+                        if (npcAnimation)
+                        {
+                            for (int type = 0; type < ESM::PRT_Count; ++type)
+                                if (const auto* part = npcAnimation->getPart(static_cast<ESM::PartReferenceType>(type)))
+                                    visitor.mSkippedNodes.insert(part->getNode().get());
+                        }
                         SceneUtil::PositionAttitudeTransform* baseNode = ptr.getRefData().getBaseNode();
                         if (baseNode)
                             baseNode->accept(visitor);
                         // The instance might not have a physical model due to paging or scripting.
                         // If this is the case, fall back to the template
-                        if (visitor.mTextures.empty())
+                        if (visitor.mTextures.empty() && !npcAnimation)
                         {
                             Resource::SceneManager* sceneManager
                                 = MWBase::Environment::get().getResourceSystem()->getSceneManager();
@@ -1520,30 +1572,26 @@ namespace MWScript
                         if (!visitor.mTextures.empty())
                         {
                             msg << std::endl;
-                            std::string lastTextureSrc;
-                            for (auto& [textureName, fileName] : visitor.mTextures)
-                            {
-                                std::string textureSrc;
-                                if (!fileName.empty())
-                                    textureSrc = vfs->getArchive(fileName);
-
-                                if (lastTextureSrc.empty() || textureSrc != lastTextureSrc)
-                                {
-                                    lastTextureSrc = std::move(textureSrc);
-                                    if (lastTextureSrc.empty())
-                                        lastTextureSrc = "[No Source]";
-
-                                    msg << "  " << lastTextureSrc << std::endl;
-                                }
-                                msg << "    ";
-                                msg << (textureName.empty() ? "[Anonymous]: " : textureName) << ": ";
-                                msg << (fileName.empty() ? "[No File]" : fileName) << std::endl;
-                            }
+                            printTextures(msg, visitor, *vfs);
                         }
                         else
                         {
                             msg << "[None]" << std::endl;
                         }
+                        for (int type = 0; npcAnimation && type < ESM::PRT_Count; ++type)
+                        {
+                            const auto* part = npcAnimation->getPart(static_cast<ESM::PartReferenceType>(type));
+                            if (!part)
+                                continue;
+                            msg << sPartNames[type] << " part: " << part->getModel().value() << std::endl;
+                            const std::string partArchive = vfs->getArchive(part->getModel());
+                            if (!partArchive.empty())
+                                msg << "(" << partArchive << ")" << std::endl;
+                            TextureFetchVisitor partVisitor;
+                            part->getNode()->accept(partVisitor);
+                            printTextures(msg, partVisitor, *vfs);
+                        }
+#endif
                     }
                     if (!ptr.getClass().getScript(ptr).empty())
                         msg << "Script: " << ptr.getClass().getScript(ptr) << std::endl;
@@ -1756,6 +1804,17 @@ namespace MWScript
             }
         };
 
+#ifdef OPENMW_CTR_NATIVE
+        class OpTestModels : public Interpreter::Opcode0
+        {
+        public:
+            void execute(Interpreter::Runtime& runtime) override
+            {
+                runtime.getContext().report("TestModels is not available in this build");
+            }
+        };
+
+#else
         class OpTestModels : public Interpreter::Opcode0
         {
             template <class T>
@@ -1810,6 +1869,7 @@ namespace MWScript
                 runtime.getContext().report(message.str());
             }
         };
+#endif
 
         void installOpcodes(Interpreter::Interpreter& interpreter)
         {

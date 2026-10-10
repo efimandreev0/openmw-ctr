@@ -138,6 +138,14 @@ namespace MWPhysics
     {
         // Reset per-frame data
         actor.mWalkingOnWater = false;
+#ifdef OPENMW_CTR_NATIVE
+        if (!actor.mIsPlayer && !actor.mFlying && !actor.mWaterCollision && actor.mIsOnGround && !actor.mIsOnSlope
+            && actor.mStuckFrames == 0 && actor.mMovement.length2() == 0.f && actor.mInertia.length2() == 0.f)
+        {
+            actor.mIdleSkipped = true;
+            return;
+        }
+#endif
         // Anything to collide with?
         if (actor.mSkipCollisionDetection)
         {

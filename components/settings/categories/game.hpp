@@ -27,8 +27,13 @@ namespace Settings
         SettingValue<int> mDifficulty{ mIndex, "Game", "difficulty", makeClampSanitizerInt(-500, 500) };
         // We have to cap it since using high values (larger than 7168) will make some quests harder or impossible to
         // complete (bug #1876)
+#ifdef OPENMW_CTR_NATIVE
+        SettingValue<int> mActorsProcessingRange{ mIndex, "Game", "actors processing range",
+            makeClampSanitizerInt(1024, 7168) };
+#else
         SettingValue<int> mActorsProcessingRange{ mIndex, "Game", "actors processing range",
             makeClampSanitizerInt(3584, 7168) };
+#endif
         SettingValue<bool> mClassicReflectedAbsorbSpellsBehavior{ mIndex, "Game",
             "classic reflected absorb spells behavior" };
         SettingValue<bool> mClassicCalmSpellsBehavior{ mIndex, "Game", "classic calm spells behavior" };
@@ -74,6 +79,7 @@ namespace Settings
         SettingValue<DetourNavigator::CollisionShapeType> mActorCollisionShapeType{ mIndex, "Game",
             "actor collision shape type" };
         SettingValue<bool> mPlayerMovementIgnoresAnimation{ mIndex, "Game", "player movement ignores animation" };
+        SettingValue<bool> mTerrainObstructsFocus{ mIndex, "Game", "terrain obstructs focus" };
     };
 }
 

@@ -1,3 +1,4 @@
+#include <osg/Vec3>
 #include <components/debug/debuglog.hpp>
 
 #include <components/sceneutil/positionattitudetransform.hpp>
@@ -429,11 +430,8 @@ namespace MWScript
                 dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(base, ptr);
 
                 auto rot = ptr.getRefData().getPosition().asRotationVec3();
-                // Note that you must specify ZRot in minutes (1 degree = 60 minutes; north = 0, east = 5400, south
-                // = 10800, west = 16200) except for when you position the player, then degrees must be used. See
-                // "Morrowind Scripting for Dummies (9th Edition)" pages 50 and 54 for reference.
                 if (!isPlayer)
-                    zRot = zRot / 60.0f;
+                    zRot = osg::DegreesToRadians(zRot);
                 rot.z() = osg::DegreesToRadians(zRot);
                 world->rotateObject(ptr, rot);
 
@@ -487,11 +485,8 @@ namespace MWScript
                 dynamic_cast<MWScript::InterpreterContext&>(runtime.getContext()).updatePtr(base, ptr);
 
                 auto rot = ptr.getRefData().getPosition().asRotationVec3();
-                // Note that you must specify ZRot in minutes (1 degree = 60 minutes; north = 0, east = 5400, south =
-                // 10800, west = 16200) except for when you position the player, then degrees must be used. See
-                // "Morrowind Scripting for Dummies (9th Edition)" pages 50 and 54 for reference.
                 if (!isPlayer)
-                    zRot = zRot / 60.0f;
+                    zRot = osg::DegreesToRadians(zRot);
                 rot.z() = osg::DegreesToRadians(zRot);
                 world->rotateObject(ptr, rot);
                 bool cellActive = MWBase::Environment::get().getWorldScene()->isCellActive(*ptr.getCell());

@@ -1,12 +1,12 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/util.hpp"
+#else
 #ifndef OPENMW_MWRENDER_UTIL_H
 #define OPENMW_MWRENDER_UTIL_H
 
 #include <components/vfs/pathutil.hpp>
 
-#include <osg/LightModel>
 #include <osg/NodeCallback>
-
-#include <string_view>
 
 namespace osg
 {
@@ -39,8 +39,7 @@ namespace MWRender
     };
 
     bool shouldAddMSAAIntermediateTarget();
-
-    const osg::ref_ptr<osg::LightModel>& getVFXLightModelInstance();
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

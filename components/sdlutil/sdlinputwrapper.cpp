@@ -12,14 +12,21 @@ void ctrPumpNativeInput(); // apps/openmw/ctr/CtrHidInput.cpp
 #include <components/debug/debuglog.hpp>
 #include <components/settings/values.hpp>
 
+#ifndef __3DS__
 #include <osgViewer/Viewer>
+#endif
 
 namespace SDLUtil
 {
 
+#ifdef __3DS__
+    InputWrapper::InputWrapper(SDL_Window* window, void* /*viewer*/, bool grab)
+        : mSDLWindow(window)
+#else
     InputWrapper::InputWrapper(SDL_Window* window, osg::ref_ptr<osgViewer::Viewer> viewer, bool grab)
         : mSDLWindow(window)
         , mViewer(std::move(viewer))
+#endif
         , mMouseListener(nullptr)
         , mSensorListener(nullptr)
         , mKeyboardListener(nullptr)
@@ -37,8 +44,7 @@ namespace SDLUtil
         , mMouseRelative(false)
         , mFirstMouseMove(true)
         , mMouseZ(0)
-        , mMouseX(0)
-        , mMouseY(0)
+        , mPendingWheelY(0.0)
         , mWindowHasFocus(true)
         , mMouseInWindow(true)
     {
@@ -62,7 +68,9 @@ namespace SDLUtil
 
     void InputWrapper::capture(bool windowEventsOnly)
     {
+#ifndef __3DS__
         mViewer->getEventQueue()->frame(0.f);
+#endif
 
 #ifdef __3DS__
         // Native HID bridge: the SDL n3ds joystick driver stays silent in
@@ -155,11 +163,13 @@ namespace SDLUtil
                 case SDL_KEYDOWN:
                     mKeyboardListener->keyPressed(evt.key);
 
+#ifndef __3DS__
                     if (!isModifierHeld(KMOD_ALT) && evt.key.keysym.sym >= SDLK_F1 && evt.key.keysym.sym <= SDLK_F12)
                     {
                         mViewer->getEventQueue()->keyPress(
                             osgGA::GUIEventAdapter::KEY_F1 + (evt.key.keysym.sym - SDLK_F1));
                     }
+#endif
 
                     break;
                 case SDL_KEYUP:
@@ -167,10 +177,12 @@ namespace SDLUtil
                     {
                         mKeyboardListener->keyReleased(evt.key);
 
+#ifndef __3DS__
                         if (!isModifierHeld(KMOD_ALT) && evt.key.keysym.sym >= SDLK_F1
                             && evt.key.keysym.sym <= SDLK_F12)
                             mViewer->getEventQueue()->keyRelease(
                                 osgGA::GUIEventAdapter::KEY_F1 + (evt.key.keysym.sym - SDLK_F1));
+#endif
                     }
 
                     break;
@@ -423,9 +435,11 @@ namespace SDLUtil
                 if (w == 0 && h == 0)
                     return;
 
+#ifndef __3DS__
                 mViewer->getCamera()->getGraphicsContext()->resized(x, y, w, h);
 
                 mViewer->getEventQueue()->windowResize(x, y, w, h);
+#endif
 
                 if (mWindowListener)
                     mWindowListener->windowResized(w, h);
@@ -574,14 +588,12 @@ namespace SDLUtil
     MouseMotionEvent InputWrapper::_packageMouseMotion(const SDL_Event& evt)
     {
         MouseMotionEvent packEvt = {};
-        packEvt.x = mMouseX * mScaleX;
-        packEvt.y = mMouseY * mScaleY;
         packEvt.z = mMouseZ;
 
         if (evt.type == SDL_MOUSEMOTION)
         {
-            packEvt.x = mMouseX = evt.motion.x * mScaleX;
-            packEvt.y = mMouseY = evt.motion.y * mScaleY;
+            packEvt.x = evt.motion.x * mScaleX;
+            packEvt.y = evt.motion.y * mScaleY;
             packEvt.xrel = evt.motion.xrel * mScaleX;
             packEvt.yrel = evt.motion.yrel * mScaleY;
             packEvt.type = SDL_MOUSEMOTION;
@@ -595,9 +607,19 @@ namespace SDLUtil
         }
         else if (evt.type == SDL_MOUSEWHEEL)
         {
-            mMouseZ += packEvt.zrel = (evt.wheel.y * 120);
+            double preciseY = evt.wheel.preciseY;
+
+            mPendingWheelY += preciseY * 120.0;
+            const int zrel = static_cast<int>(mPendingWheelY);
+            mPendingWheelY -= zrel;
+
+            mMouseZ += zrel;
+            packEvt.zrel = zrel;
             packEvt.z = mMouseZ;
             packEvt.type = SDL_MOUSEWHEEL;
+
+            packEvt.x = evt.wheel.mouseX * mScaleX;
+            packEvt.y = evt.wheel.mouseY * mScaleY;
         }
         else
         {

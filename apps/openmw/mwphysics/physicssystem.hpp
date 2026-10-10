@@ -14,7 +14,6 @@
 #include <osg/BoundingBox>
 #include <osg/Quat>
 #include <osg/Timer>
-#include <osg/ref_ptr>
 
 #include <components/vfs/pathutil.hpp>
 
@@ -25,14 +24,8 @@
 
 namespace osg
 {
-    class Group;
     class Object;
     class Stats;
-}
-
-namespace MWRender
-{
-    class DebugDrawer;
 }
 
 namespace Resource
@@ -42,12 +35,18 @@ namespace Resource
 }
 
 class btCollisionWorld;
+class btIDebugDraw;
 class btBroadphaseInterface;
 class btDefaultCollisionConfiguration;
 class btCollisionDispatcher;
 class btCollisionObject;
 class btCollisionShape;
 class btVector3;
+
+namespace ESMTerrain
+{
+    class LandObject;
+}
 
 namespace MWPhysics
 {
@@ -104,6 +103,7 @@ namespace MWPhysics
         const bool mWaterCollision;
         const bool mSkipCollisionDetection;
         const bool mIsPlayer;
+        bool mIdleSkipped = false;
     };
 
     struct ProjectileFrameData
@@ -152,7 +152,7 @@ namespace MWPhysics
     class PhysicsSystem : public RayCastingInterface
     {
     public:
-        PhysicsSystem(Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode);
+        PhysicsSystem(Resource::ResourceSystem* resourceSystem, std::unique_ptr<btIDebugDraw> debugDrawer);
         virtual ~PhysicsSystem();
 
         Resource::BulletShapeManager* getShapeManager();
@@ -187,7 +187,7 @@ namespace MWPhysics
         void updatePosition(const MWWorld::Ptr& ptr);
 
         void addHeightField(const float* heights, int x, int y, int size, int verts, float minH, float maxH,
-            const osg::Object* holdObject);
+            std::shared_ptr<const ESMTerrain::LandObject> holdObject);
 
         void removeHeightField(int x, int y);
 
@@ -336,9 +336,7 @@ namespace MWPhysics
         std::unique_ptr<btCollisionObject> mWaterCollisionObject;
         std::unique_ptr<btCollisionShape> mWaterCollisionShape;
 
-        std::unique_ptr<MWRender::DebugDrawer> mDebugDrawer;
-
-        osg::ref_ptr<osg::Group> mParentNode;
+        std::unique_ptr<btIDebugDraw> mDebugDrawer;
 
         std::size_t mSimulationsCounter = 0;
         std::array<std::vector<Simulation>, 2> mSimulations;

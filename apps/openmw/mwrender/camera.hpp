@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/camera.hpp"
+#else
 #ifndef GAME_MWRENDER_CAMERA_H
 #define GAME_MWRENDER_CAMERA_H
 
@@ -39,7 +42,7 @@ namespace MWRender
         ~Camera();
 
         /// Attach camera to object
-        void attachTo(const MWWorld::Ptr& ptr) { mTrackingPtr = ptr; }
+        void attachTo(const MWWorld::Ptr& ptr);
         MWWorld::Ptr getTrackingPtr() const { return mTrackingPtr; }
 
         void setFocalPointTransitionSpeed(float v) { mFocalPointTransitionSpeedCoef = v; }
@@ -175,3 +178,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

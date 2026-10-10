@@ -49,45 +49,10 @@ namespace Shader
 
 namespace Resource
 {
-    class TemplateRef : public osg::Object
-    {
-    public:
-        TemplateRef(const Object* object)
-            : mObject(object)
-        {
-        }
-        TemplateRef() {}
-        TemplateRef(const TemplateRef& copy, const osg::CopyOp&)
-            : mObject(copy.mObject)
-        {
-        }
-
-        META_Object(Resource, TemplateRef)
-
-    private:
-        osg::ref_ptr<const Object> mObject;
-    };
-
-    class TemplateMultiRef : public osg::Object
-    {
-    public:
-        TemplateMultiRef() {}
-        TemplateMultiRef(const TemplateMultiRef& copy, const osg::CopyOp&)
-            : mObjects(copy.mObjects)
-        {
-        }
-        void addRef(const osg::Node* node);
-
-        META_Object(Resource, TemplateMultiRef)
-
-    private:
-        std::vector<osg::ref_ptr<const Object>> mObjects;
-    };
-
     /// @brief Handles loading and caching of scenes, e.g. .nif files or .osg files
     /// @note Some methods of the scene manager can be used from any thread, see the methods documentation for more
     /// details.
-    class SceneManager : public ResourceManager
+    class SceneManager : public NodeResourceManager<std::string>
     {
     public:
         explicit SceneManager(const VFS::Manager* vfs, Resource::ImageManager* imageManager,
@@ -99,20 +64,13 @@ namespace Resource
         /// Re-create shaders for this node, need to call this if alpha testing, texture stages or vertex color mode
         /// have changed.
         void recreateShaders(osg::ref_ptr<osg::Node> node, const std::string& shaderPrefix = "objects",
-            bool forceShadersForNode = false, const osg::Program* programTemplate = nullptr);
+            const osg::Program* programTemplate = nullptr);
 
         /// Applying shaders to a node may replace some fixed-function state.
         /// This restores it.
         /// When editing such state, it should be reinstated before the edits, and shaders should be recreated
         /// afterwards.
         void reinstateRemovedState(osg::ref_ptr<osg::Node> node);
-
-        /// @see ShaderVisitor::setForceShaders
-        void setForceShaders(bool force);
-        bool getForceShaders() const;
-
-        void setClampLighting(bool clamp);
-        bool getClampLighting() const;
 
         /// @see ShaderVisitor::setAutoUseNormalMaps
         void setAutoUseNormalMaps(bool use);
@@ -127,14 +85,14 @@ namespace Resource
 
         void setSpecularMapPattern(const std::string& pattern);
 
-        void setApplyLightingToEnvMaps(bool apply);
-
-        void setSupportedLightingMethods(const SceneUtil::LightManager::SupportedMethods& supported);
-        bool isSupportedLightingMethod(SceneUtil::LightingMethod method) const;
+        void setSupportsClusteredLighting(bool supported);
+        bool isClusteredLightingSupported() const;
 
         void setOpaqueDepthTex(osg::ref_ptr<osg::Texture> texturePing, osg::ref_ptr<osg::Texture> texturePong);
+        void setOpaqueColorTex(osg::ref_ptr<osg::Texture> texturePing, osg::ref_ptr<osg::Texture> texturePong);
 
         osg::ref_ptr<osg::Texture> getOpaqueDepthTex(size_t frame);
+        osg::ref_ptr<osg::Texture> getOpaqueColorTex(size_t frame);
 
         void loadSelectionMarker(
             osg::ref_ptr<osg::Group> parentNode, const char* markerData, long long markerSize) const;
@@ -146,8 +104,6 @@ namespace Resource
             LightBuffer,
             PostProcessor
         };
-        void setLightingMethod(SceneUtil::LightingMethod method);
-        SceneUtil::LightingMethod getLightingMethod() const;
 
         void setConvertAlphaTestToAlphaToCoverage(bool convert);
         void setAdjustCoverageForAlphaTest(bool adjustCoverage);
@@ -245,6 +201,7 @@ namespace Resource
         std::string mNormalHeightMapPattern;
         std::string mSpecularMapPattern;
         std::array<osg::ref_ptr<osg::Texture>, 2> mOpaqueDepthTex;
+        std::array<osg::ref_ptr<osg::Texture>, 2> mOpaqueColorTex;
 
         osg::ref_ptr<Resource::SharedStateManager> mSharedStateManager;
 
@@ -260,13 +217,9 @@ namespace Resource
         float mMaxAnisotropy;
 
         unsigned int mParticleSystemMask;
-        SceneUtil::LightingMethod mLightingMethod;
-        SceneUtil::LightManager::SupportedMethods mSupportedLightingMethods;
-        bool mForceShaders = false;
-        bool mClampLighting = true;
+        bool mSupportsClusteredLighting = false;
         bool mAutoUseNormalMaps = false;
         bool mAutoUseSpecularMaps = false;
-        bool mApplyLightingToEnvMaps = false;
         bool mConvertAlphaTestToAlphaToCoverage = false;
         bool mAdjustCoverageForAlphaTest = false;
         bool mSupportsNormalsRT = false;

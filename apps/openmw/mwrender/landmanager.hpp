@@ -1,10 +1,13 @@
 #ifndef OPENMW_MWRENDER_LANDMANAGER_H
 #define OPENMW_MWRENDER_LANDMANAGER_H
 
-#include <osg/Object>
 
 #include <components/esm/exteriorcelllocation.hpp>
+#ifdef OPENMW_CTR_NATIVE
+#include <components/esmterrain/landobject.hpp>
+#else
 #include <components/esmterrain/storage.hpp>
+#endif
 #include <components/resource/resourcemanager.hpp>
 
 namespace ESM
@@ -15,13 +18,14 @@ namespace ESM
 namespace MWRender
 {
 
-    class LandManager : public Resource::GenericResourceManager<ESM::ExteriorCellLocation>
+    class LandManager : public Resource::GenericResourceManager<ESM::ExteriorCellLocation,
+                            std::shared_ptr<const ESMTerrain::LandObject>>
     {
     public:
         LandManager(int loadFlags);
 
         /// @note Will return nullptr if not found.
-        osg::ref_ptr<ESMTerrain::LandObject> getLand(ESM::ExteriorCellLocation cellIndex);
+        std::shared_ptr<const ESMTerrain::LandObject> getLand(ESM::ExteriorCellLocation cellIndex);
 
         void reportStats(unsigned int frameNumber, osg::Stats* stats) const override;
 

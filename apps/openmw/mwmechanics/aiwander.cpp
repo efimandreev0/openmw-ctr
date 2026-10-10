@@ -224,6 +224,9 @@ namespace MWMechanics
         if (cStats.isDead() || cStats.getHealth().getCurrent() <= 0)
             return true; // Don't bother with dead actors
 
+        if (!actor.getClass().isMobile(actor))
+            return false; // Don't bother with immobile creatures
+
         // get or create temporary storage
         AiWanderStorage& storage = state.get<AiWanderStorage>();
 
@@ -256,14 +259,15 @@ namespace MWMechanics
             && !cStats.getMovementFlag(CreatureStats::Flag_ForceSneak))
         {
             GreetingState greetingState = MWBase::Environment::get().getMechanicsManager()->getGreetingState(actor);
-            if (greetingState == GreetingState::InProgress)
+            if (!storage.mGreeting && greetingState == GreetingState::InProgress)
             {
+                storage.mGreeting = true;
                 if (storage.mState == AiWanderStorage::Wander_Walking)
                 {
                     stopMovement(actor);
                     mObstacleCheck.clear();
-                    storage.setState(AiWanderStorage::Wander_IdleNow);
                 }
+                storage.setState(AiWanderStorage::Wander_IdleNow);
             }
         }
 
@@ -508,6 +512,15 @@ namespace MWMechanics
 
     void AiWander::onIdleStatePerFrameActions(const MWWorld::Ptr& actor, float duration, AiWanderStorage& storage)
     {
+        if (storage.mGreeting)
+        {
+            const MWBase::MechanicsManager& mechMgr = *MWBase::Environment::get().getMechanicsManager();
+            if (mechMgr.getGreetingState(actor) == GreetingState::InProgress || checkIdle(actor, 2))
+                return;
+
+            storage.mGreeting = false;
+        }
+
         // Check if an idle actor is too far from all allowed positions or too close to a door - if so start walking.
         storage.mCheckIdlePositionTimer += duration;
 
@@ -524,8 +537,7 @@ namespace MWMechanics
         }
 
         // Check if idle animation finished
-        GreetingState greetingState = MWBase::Environment::get().getMechanicsManager()->getGreetingState(actor);
-        if (!checkIdle(actor, storage.mIdleAnimation) && greetingState != GreetingState::InProgress)
+        if (!checkIdle(actor, storage.mIdleAnimation))
         {
             if (mPathFinder.isPathConstructed())
                 storage.setState(AiWanderStorage::Wander_Walking, !mUsePathgrid);

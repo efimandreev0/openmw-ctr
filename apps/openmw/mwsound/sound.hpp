@@ -56,6 +56,7 @@ namespace MWSound
         Sound_Instance mHandle = nullptr;
 
         friend class OpenALOutput;
+        friend class NdspOutput;
 
     public:
         void setPosition(const osg::Vec3f& pos) { mParams.mPos = pos; }

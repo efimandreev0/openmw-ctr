@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/actoranimation.hpp"
+#else
 #ifndef GAME_RENDER_ACTORANIMATION_H
 #define GAME_RENDER_ACTORANIMATION_H
 
@@ -41,7 +44,7 @@ namespace MWRender
         void itemRemoved(const MWWorld::ConstPtr& item, int count) override;
         virtual bool isArrowAttached() const { return false; }
         bool useShieldAnimations() const override;
-        bool updateCarriedLeftVisible(const int weaptype) const override;
+        bool updateCarriedLeftVisible(ESM::RefId weaptype) const override;
 
         void removeFromScene() override;
 
@@ -50,7 +53,7 @@ namespace MWRender
         void updateHolsteredWeapon(bool showHolsteredWeapons);
         void updateHolsteredShield(bool showCarriedLeft);
         void updateQuiver();
-        std::string getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const;
+        VFS::Path::Normalized getShieldMesh(const MWWorld::ConstPtr& shield, bool female) const;
         virtual std::string getSheathedShieldMesh(const MWWorld::ConstPtr& shield) const;
         std::string_view getHolsteredWeaponBoneName(const MWWorld::ConstPtr& weapon);
 
@@ -76,3 +79,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

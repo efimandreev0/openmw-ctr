@@ -12,7 +12,9 @@
 #include "../mwbase/environment.hpp"
 #include "../mwbase/windowmanager.hpp"
 
+#ifndef OPENMW_NO_LUA
 #include "../mwlua/localscripts.hpp"
+#endif
 
 #include "../mwworld/actionequip.hpp"
 #include "../mwworld/cellstore.hpp"
@@ -47,7 +49,7 @@ namespace MWClass
         }
     }
 
-    std::string_view Armor::getModel(const MWWorld::ConstPtr& ptr) const
+    VFS::Path::NormalizedView Armor::getModel(const MWWorld::ConstPtr& ptr) const
     {
         return getClassModel<ESM::Armor>(ptr);
     }
@@ -115,6 +117,7 @@ namespace MWClass
     {
         // We don't actually need an actor as such. We just need an object that has
         // lua scripts and the Combat interface.
+#ifndef OPENMW_NO_LUA
         if (useLuaInterfaceIfAvailable)
         {
             // In this interface call, both objects are effectively const, so stripping Const from the ConstPtr is fine.
@@ -125,6 +128,7 @@ namespace MWClass
             if (res)
                 return ESM::RefId::deserializeText(res.value());
         }
+#endif
 
         // Fallback to the old engine implementation when actors don't have their scripts attached yet.
 
@@ -219,11 +223,11 @@ namespace MWClass
             return heavyDown;
     }
 
-    const std::string& Armor::getInventoryIcon(const MWWorld::ConstPtr& ptr) const
+    VFS::Path::NormalizedView Armor::getInventoryIcon(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::Armor>* ref = ptr.get<ESM::Armor>();
 
-        return ref->mBase->mIcon;
+        return ref->mBase->mIcon.getNormalized();
     }
 
     MWGui::ToolTipInfo Armor::getToolTipInfo(const MWWorld::ConstPtr& ptr, int count) const
@@ -233,7 +237,7 @@ namespace MWClass
         MWGui::ToolTipInfo info;
         std::string_view name = getName(ptr);
         info.caption = MyGUI::TextIterator::toTagsString(MyGUI::UString(name)) + MWGui::ToolTips::getCountString(count);
-        info.icon = ref->mBase->mIcon;
+        info.icon = ref->mBase->mIcon.getOriginal();
 
         std::string text;
 
@@ -314,6 +318,7 @@ namespace MWClass
     float Armor::getSkillAdjustedArmorRating(
         const MWWorld::ConstPtr& ptr, const MWWorld::Ptr& actor, bool useLuaInterfaceIfAvailable) const
     {
+#ifndef OPENMW_NO_LUA
         if (useLuaInterfaceIfAvailable && actor == MWMechanics::getPlayer())
         {
             // In this interface call, both objects are effectively const, so stripping Const from the ConstPtr is fine.
@@ -324,6 +329,7 @@ namespace MWClass
             if (res)
                 return res.value();
         }
+#endif
 
         // Fallback to the old engine implementation when actors don't have their scripts attached yet.
 

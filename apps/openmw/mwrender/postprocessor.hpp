@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/postprocessor.hpp"
+#else
 #ifndef OPENMW_MWRENDER_POSTPROCESSOR_H
 #define OPENMW_MWRENDER_POSTPROCESSOR_H
 
@@ -20,6 +23,7 @@
 #include <components/fx/technique.hpp>
 #include <components/misc/strings/algorithm.hpp>
 
+#include "opaqueblit.hpp"
 #include "pingpongcanvas.hpp"
 #include "transparentpass.hpp"
 
@@ -48,6 +52,7 @@ namespace Shader
 namespace MWRender
 {
     class RenderingManager;
+    class Water;
     class PingPongCull;
     class PingPongCanvas;
     class TransparentDepthBinCallback;
@@ -57,7 +62,7 @@ namespace MWRender
     {
     public:
         using FBOArray = std::array<osg::ref_ptr<osg::FrameBufferObject>, 6>;
-        using TextureArray = std::array<osg::ref_ptr<osg::Texture>, 6>;
+        using TextureArray = std::array<osg::ref_ptr<osg::Texture>, 7>;
         using TechniqueList = std::vector<std::shared_ptr<Fx::Technique>>;
 
         enum TextureIndex
@@ -68,6 +73,7 @@ namespace MWRender
             Tex_OpaqueDepth,
             Tex_Normal,
             Tex_Distortion,
+            Tex_OpaqueColor,
         };
 
         enum FBOIndex
@@ -102,6 +108,8 @@ namespace MWRender
             RenderingManager& rendering, osgViewer::Viewer* viewer, osg::Group* rootNode, const VFS::Manager* vfs);
 
         ~PostProcessor();
+
+        void setupTransparentBin(const Water* water);
 
         void traverse(osg::NodeVisitor& nv) override;
 
@@ -267,6 +275,7 @@ namespace MWRender
         osg::ref_ptr<PingPongCull> mPingPongCull;
         std::array<osg::ref_ptr<PingPongCanvas>, 2> mCanvases;
         osg::ref_ptr<TransparentDepthBinCallback> mTransparentDepthPostPass;
+        osg::ref_ptr<OpaqueColorBinCallback> mOpaqueColorResolve;
         osg::ref_ptr<DistortionCallback> mDistortionCallback;
 
         Fx::DispatchArray mTemplateData;
@@ -274,3 +283,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

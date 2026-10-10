@@ -1,13 +1,123 @@
-0.51.0
-------
+0.52.0
 
+    Bug #2633: Problems with water and transparent objects
+    Bug #2708: Launcher: the position of disabled content files is not saved
+    Bug #4749: Refraction in the water shader causes artifacts
+    Bug #4954: Dwarven spectres are too transparent
+    Bug #5061: Chameleon affects transparency of casting VFX
+    Bug #6117: Combat AI target selection should prefer closer targets
+    Bug #6153: Underwater blended objects incorrectly rendered with refraction
+    Bug #6359: Refraction and non-refraction shader water look extremely different
+    Bug #6748: [Lua] UI layout does not respond to window resize
+    Bug #6904: Ancestor Ghost death does not play correctly
+    Bug #6912: Default terrain rendering is broken
+    Bug #7029: Debug overlay does not work for underwater areas when water refraction is enabled
+    Bug #7176: Post-processing normals are too imprecise for reflection effects
+    Bug #7776: Combat AI movement is not very responsive
+    Bug #7853: Water refraction depth loses precision at far distances
+    Bug #8134: Convert NiLODNode ranges so they don't overlap
+    Bug #8257: Centurion Spider cannot self-heal with a spell
+    Bug #8323: Vvardenfell Animated Main Menu is skipping
+    Bug #8464: Red-tinted NPCs and water on Apple Silicon
+    Bug #8813: Water walking actors don't drown when getting knocked out
+    Bug #8822: Default interaction raycasts need to ignore terrain
+    Bug #9023: Telvanni Guard is aggressive towards exhibition piece in Dwemer Museum
+    Bug #9052: Clamped per-vertex sunlight is slightly brighter than it should be
+    Bug #9083: GetCastPenalty returns positive values
+    Bug #9094: Editor: Script verifier jumps to wrong line when word wrapping affects the script
+    Bug #9099: Canceling werewolf claw mode shouldn't play a sound
+    Bug #9101: Can still animate the player character via the sneak button when paralyzed
+    Bug #9121: Lua allows engaging combat with a non-actor
+    Bug #9128: New game intro video is unskippable after clicking
+    Bug #9130: openmw.content issues with ingredient templates
+    Bug #9134: Trackpad scrolling not working properly on macOS in interfaces/menus
+    Bug #9137: ToggleAI state should not be reset when a save is loaded
+    Bug #9138: Flickering on non-shader water ripples
+    Bug #9142: Minimap should be zoomed out
+    Bug #9146: ActorActiveSpells:add shows enemy health bar when adding healing effect on self
+    Bug #9147: ActorActiveSpells:add does not update spell icons if game is paused
+    Bug #9149: Sensible mouse scrolling steps should be used for settings menu sliders
+    Bug #9154: Knockdown check uses damage after armor reduction
+    Bug #9157: Show owned doesn't work in Menu Mode
+    Bug #9161: Map Zooming isn't centered on the cursor for MacOS (trackpads at least)
+    Bug #9170: NiPlanarCollider sometimes deflects particles that move away from it
+    Bug #9173: Console keybind prevents typing Shift-modified characters for the bound key
+    Bug #9179: OAAB - Articulating Animunculi Head spins in conversation, talks too often
+    Bug #9180: Actor.spells(actor):canUsePower errors if called on other actor from local script
+    Bug #9183: The number settings renderer resets input if entered value is outside of the specified min-max range
+    Bug #9187: Odd map zooming world local map transition and centering behavior
+    Bug #9223: Sun reflection in interiors
+    Bug #9230: Crash in element:update() after replacing element.layout
+    Bug #9236: Empty input.getKeyName result in inputBinding makes it unclickable
+    Bug #9247: Position incorrectly uses minutes
+    Bug #9249: Player can still pickup/move items through menu mode even though their character is a werewolf
+    Bug #9252: Poor LOD range selection during active grid object paging
+    Bug #9258: Trying to ready your character for spellcasting or attacking before getting knocked down may break spellcasting/attacking
+    Bug #9273: Additional instances of autocalculated NPCs do not get autocalculated spells
+    Bug #9296: Summons fail to appear when Bloodmoon is disabled
+    Bug #9324: Lua storage file loading is still not foolproof
+    Bug #9328: Follower of another actor will continue fighting the player after calm effect expires
+    Bug #9338: Fatal Crash when loading a save with pending Lua Object:teleport() actions
+    Bug #9343: Launcher discards launcher.cfg settings it does not recognise
+    Bug #9346: Negative skillIncreasesForAttribute value causes "GameSetting 'iLevelUp-2Mult' not found" every frame
+    Bug #9357: Night sky rotation is inconsistent and differs greatly from Morrowind.exe
+    Feature #3602: Implement NiBillboardNode flags
+    Feature #5712: Editor: Ensure content file order matches launcher order
+    Feature #6900: Clustered forward rendering
+    Feature #6938: Support NiLookAtController
+    Feature #7586: Lua levelled item manipulation
+    Feature #7743: Lua UI - Add padding property
+    Feature #8241: Allow adding data directories to the launcher via dragging-and-dropping
+    Feature #8546: Windows: Support reading files larger than 4GB
+    Feature #8948: Expose "corpses persist" flag to Lua
+    Feature #9033: Controller joystick mouse emulation mode indicator circle
+    Feature #9053: Make the light radius multiplier affect the fadeout radius
+    Feature #9090: Add a setting for 3rd person camera max distance
+    Feature #9104: Wind-up strength hit parameter (as opposed to attack strength)
+    Feature #9122: Viewport resize engine handler
+    Feature #9123: Flex Widget Gap and Wrap Properties
+    Feature #9129: Lua-attached VFX transformations
+    Feature #9144: Lua: GetMasserPhase and GetSecundaPhase equivalent
+    Feature #9148: Handlers for applying magic effects
+    Feature #9151: Implement RCN extra data flag
+    Feature #9201: MWSE ESS import fails with an SCPT size mismatch with >255 mods
+    Feature #9205: [Lua] Combat interface should accept records and record IDs
+    Feature #9206: Lua UI - Method to get all elements on a layer
+    Feature #9207: Lua TextureResource does not expose properties
+    Feature #9214: Add MouseWheel event to Lua UI
+    Feature #9216: Exposed Lua engine handlers for dropping and placing objects
+    Feature #9253: Allow Lua to mark objects as unmodified
+    Feature #9254: Add a way to find all instances of an object
+    Feature #9265: Magic projectile onhit handler
+    Feature #9274: Implement ignorePointerEvents prop for Lua UI widgets
+    Feature #9301: In-game shadow settings
+    Feature #9302: Spell projectiles should cause water ripples
+    Task #9043: Parallelize Lua GC
+    Task #9084: cell:getAll() adds cell data to the save file
+    Task #9116: element.content["name"] causes an error if it doesn't exist
+    Task #9222: Delay rendering settings Lua UI until the user actually views that settings page
+
+0.51.0
+
+    Bug #4769: Editor: Unable to edit exterior cells from topic info table
+    Bug #6439: Moons are blended incorrectly
     Bug #6494: Some Raven Rock buildings are enabled from the beginning of the game
+    Bug #7340: Guards do not become properly aggressive e.g. for dialogue purposes
+    Bug #7595: OpenMW-CS does not support shader rendering
+    Bug #7605: Creatures without inventory stores cannot use enchanted items
+    Bug #8110: say function doesn't seem to respect subtitles config
     Bug #8123: Can't switch ammo while attacking with a weapon/spell that doesn't use it
+    Bug #8129: MessageBox button argument handling differences
     Bug #8270: Editor: Parts of landscape textures are transparent in the cell view, allowing you to see wallpaper or other windows below them
+    Bug #8345: Editor: Random crash on save with Qt6
     Bug #8351: Malformed potion model should consistently error out
     Bug #8601: Segfault when opening Options menu while NCGDMW is loaded
     Bug #8657: Preloading crash on exit due to failed startup
+    Bug #8692: Can't switch to enchanted weapons' spells in the spell menu when spellcasting
+    Bug #8693: Crash when constructing infinite-length UI elements
+    Bug #8699: Dangling Lua script pointer crashes caused by e.g. moving items
     Bug #8732: MessageBox formatting is too limited
+    Bug #8733: Steam Deck controller triggers not detected in game menus
     Bug #8760: Single-character topics don't get linked
     Bug #8765: Actors can't transmit diseases to other actors
     Bug #8769: LuaUtil::call not wrapped by invokeProtectedCall
@@ -17,34 +127,83 @@
     Bug #8779: Lua: addSkillLevelUpHandler does not work properly with skills that reached maximum level
     Bug #8786: Door markers aren't updated correctly
     Bug #8789: Lua API: Incorrect field name for FactionRank reputation requirement
+    Bug #8797: Make equipping button play the sound once
     Bug #8799: 'Show Controller Tooltips By Default' option is not persistent
     Bug #8802: Lua UI layout children removal leaves dangling pointers leading to reloading crashes
+    Bug #8820: Trueflame torch effect not working in 0.50
+    Bug #8833: Resizing item and spell views with a mouse leads to breakage when controller tooltips are on
     Bug #8840: Lua UI elements accept table-like objects as properties, causing crashes
     Bug #8842: Loading game with --load-savegame may not detect the original character profile
     Bug #8847: Physics shape "is actor?" test should be based on ratio, not abs diff
+    Bug #8854: Having a sunrays shader in post-processing chain disables default sun glare even if post processing is off
     Bug #8864: Heavy snowfall and rainfall are broken
     Bug #8884: Object paging LOD level selection is unreliable
     Bug #8917: Lua: Spawned gold stacks don't pick a model
+    Bug #8924: Odd animation after throwing all thrown weapon stack
+    Bug #8926: No "throwing" sound for thrown weapons
+    Bug #8929: Magicka weakness does not enhance itself
+    Bug #8930: Extra data links cannot be null in Gamebryo meshes
+    Bug #8946: Spell icon order and visibility should rely on the earliest applied effect
+    Bug #8949: Dire Shockballs with 0 duration do too much damage
+    Bug #8955: [Lua] Item:remove() goes by id and deletes *every* item with that id (restocking)
+    Bug #8975: Werewolf attribute bug when boosted over 100 with corprus
+    Bug #8978: Polish needs additional word separators in dialogue
+    Bug #8980: Lua: Teleporting the player while menus are open crashes the game
+    Bug #8983: Animation instant transition on unequipping ammo mid-attack
+    Bug #8985: Objects that share a mesh with a VFX become uninteractable
+    Bug #8988: Particles are not inverted vertically
+    Bug #8996: Crash when skinning data references a nonexistent vertex
+    Bug #8999: Various Wizard badness
+    Bug #9018: controls.use = 4 sometimes semi-freezes the game
+    Bug #9026: Thrown projectiles are not rotated
+    Bug #9048: Escort AI missing argument
+    Bug #9062: Actors may fail to reequip the weapon when staggered
+    Bug #9078: Player can become decoupled from camera in cases when it shouldn't
+    Bug #9085: Lua item:remove() before queued npc:teleport() hangs main thread
+    Feature #721: Editor: Right-to-Left subview placement option
     Feature #2316: ess-Importer: convert targeted scripts
     Feature #2903: Barter gold bindings
+    Feature #5197: Editor: terrain vertex paint editmode
+    Feature #7152: OpenMW-CS: Verify global search regexp
+    Feature #7297: Support topic keyword override files from the Russian localization
+    Feature #7399: Automatically detect supported games via launcher through common locations like steam
+    Feature #7493: Add button to open current openmw.cfg(s) in the launcher
     Feature #7830: Preserve global script targets not created by content files
     Feature #8076: Lua: Add read access to Topic info Conditions
+    Feature #8342: Custom spell, enchantment records and effect lists
+    Feature #8392: Editor: Rotate a group of selected objects around 1 axis
     Feature #8644: Add loop key to world.vfx.spawn and a way to remove them
     Feature #8705: Dehardcode global map color palette
     Feature #8725: Lua: Expose localized cell names
     Feature #8731: Use Hand to Hand Hit 2 sound
+    Feature #8774: Controller Support: When in the barter/loot menus, have the active menu be brought to the front.
     Feature #8788: Dehardcode script settings window font and colors
+    Feature #8791: Custom magic effect records
     Feature #8796: Expose potion autocalc flag
     Feature #8801: Support additional controller buttons
     Feature #8816: Werewolf transformation binding
     Feature #8826: OMWFX: Expose the sunlight direction
     Feature #8841: Time advancement binding
     Feature #8874: esmtool dump should output cell reference rotation and door destination rotation
+    Feature #8902: Controller navigation for quick keys menu spell selection
     Feature #8911: Custom creature and container records
+    Feature #8913: Show the current gamma correction value like the other settings in-game
+    Feature #8956: Implement iGreetDuration and fGreetDistanceReset
+    Feature #8957: Implement iMaxInfoDist
+    Feature #8962: Expose magic effect speed parameter
+    Feature #8966: Add DialogueResponse event
+    Feature #8979: Animation ended handler
+    Feature #8987: Lua Load context
+    Feature #8998: Custom door, probe, and static records
+    Feature #9002: Warn on unknown layout properties
+    Feature #9010: Starting cell binding
+    Feature #9013: Expose reputation to Lua
+    Feature #9027: Bulgarian translation for Qt tools
+    Feature #9030: Lua-controllable camera projection offset
     Task #8718: Lua: Cell fields can still return empty strings instead of nil values
+    Task #9001: Remove the exclusive FFP mode
 
 0.50.0
-------
 
     Bug #2967: Inventory windows don't update when changing items by script
     Bug #4437: Transformations for NiSkinInstance are ignored
@@ -151,7 +310,6 @@
     Task #8578: Drop support for Qt5
 
 0.49.0
-------
 
     Bug #2623: Snowy Granius doesn't prioritize conjuration spells
     Bug #3438: NPCs can't hit bull netch with melee weapons
@@ -492,7 +650,6 @@
     Task #8214: Drop script blacklisting functionality
 
 0.48.0
-------
 
     Bug #1751: Birthsign abilities increase modified attribute values instead of base ones
     Bug #1930: Followers are still fighting if a target stops combat with a leader
@@ -717,7 +874,6 @@
     Task #6564: Remove predefined data paths `data="?global?data"`, `data=./data`
 
 0.47.0
-------
 
     Bug #1662: Qt4 and Windows binaries crash if there's a non-ASCII character in a file path/config path
     Bug #1901: Actors colliding behaviour is different from vanilla
@@ -903,7 +1059,6 @@
     Task #5520: Improve cell name autocompleter implementation
 
 0.46.0
-------
 
     Bug #1515: Opening console masks dialogue, inventory menu
     Bug #1933: Actors can have few stocks of the same item
@@ -1186,7 +1341,6 @@
     Task #4721: Add NMake support to the Windows prebuild script
 
 0.45.0
-------
 
     Bug #1875: Actors in inactive cells don't heal from resting
     Bug #1990: Sunrise/sunset not set correct
@@ -1389,7 +1543,6 @@
     Task #4652: Move call to enemiesNearby() from InputManager::rest() to World::canRest()
 
 0.44.0
-------
 
     Bug #1428: Daedra summoning scripts aren't executed when the item is taken through the inventory
     Bug #1987: Some glyphs are not supported
@@ -1489,7 +1642,6 @@
     Editor: New (and more complete) icon set
 
 0.43.0
-------
 
     Bug #815: Different settings cause inconsistent underwater visibility
     Bug #1452: autosave is not executed when waiting
@@ -1626,7 +1778,6 @@
     Task #4152: The Windows CI script is moving files around that CMake should be dealing with
 
 0.42.0
-------
 
     Bug #1956: Duplicate objects after loading the game, when a mod was edited
     Bug #2100: Falling leaves in Vurt's Leafy West Gash II not rendered correctly
@@ -1705,7 +1856,6 @@
     Task #3795: /deps folder not in .gitignore
 
 0.41.0
-------
 
     Bug #1138: Casting water walking doesn't move the player out of the water
     Bug #1931: Rocks from blocked passage in Bamz-Amschend, Radacs Forge can reset and cant be removed again.
@@ -1780,7 +1930,6 @@
     Task #3585: Some objects added by Morrowind Rebirth do not display properly their texture
 
 0.40.0
-------
 
     Bug #1320: AiWander - Creatures in cells without pathgrids do not wander
     Bug #1873: Death events are triggered at the beginning of the death animation
@@ -1845,7 +1994,6 @@
     Feature #3386: Editor: Edit pathgrid
 
 0.39.0
-------
 
     Bug #1384: Dark Brotherhood Assassin (and other scripted NPCs?) spawns beneath/inside solid objects
     Bug #1544: "Drop" drops equipped item in a separate stack
@@ -1930,7 +2078,6 @@
     Support #3179: Fatal error on startup
 
 0.38.0
-------
 
     Bug #1699: Guard will continuously run into mudcrab
     Bug #1934: Saw in Dome of Kasia doesnt harm the player
@@ -2004,7 +2151,6 @@
     Task #2542: Editor: redo user settings system
 
 0.37.0
-------
 
     Bug #385: Light emitting objects have a too short distance of activation
     Bug #455: Animation doesn't resize creature's bounding box
@@ -2233,12 +2379,10 @@
     Task #3003: Support FFMPEG 2.9 (Debian request)
 
 0.36.1
-------
 
     Bug #2590: Start scripts not added correctly
 
 0.36.0
-------
 
     Bug #923: Editor: Operations-Multithreading is broken
     Bug #1317: Erene Llenim in Seyda Neen does not walk around
@@ -2284,7 +2428,6 @@
     Task #2516: Editor: Change References / Referenceables terminology
 
 0.35.1
-------
 
     Bug #781: incorrect trajectory of the sun
     Bug #1079: Wrong starting position in "Character Stuff Wonderland"
@@ -2323,7 +2466,6 @@
     Feature #2412: Basic joystick support
 
 0.35.0
-------
 
     Bug #244: Clipping/static in relation to the ghostgate/fence sound.
     Bug #531: Missing transparent menu items
@@ -2447,7 +2589,6 @@
     Task #2196: Label local/global openmw.cfg files via comments
 
 0.34.0
-------
 
     Bug #904: omwlauncher doesn't allow installing Tribunal and Bloodmoon if only MW is installed
     Bug #986: Launcher: renaming profile names is broken
@@ -2525,12 +2666,10 @@
     Task #1965: Editor: Improve layout of user settings dialogue
 
 0.33.1
-------
 
     Bug #2108: OpenCS fails to build
 
 0.33.0
-------
 
     Bug #371: If console assigned to ` (probably to any symbolic key), "`" symbol will be added to console every time it closed
     Bug #1148: Some books'/scrolls' contents are displayed incorrectly
@@ -2647,7 +2786,6 @@
     Task #1865: Replace char type in records
 
 0.32.0
-------
 
     Bug #1132: Unable to jump when facing a wall
     Bug #1341: Summoned Creatures do not immediately disappear when killed.
@@ -2795,7 +2933,6 @@
     Task #1716: Remove defunct option for building without FFmpeg
 
 0.31.0
-------
 
     Bug #245: Cloud direction and weather systems differ from Morrowind
     Bug #275: Local Map does not always show objects that span multiple cells
@@ -2981,7 +3118,6 @@
     Task #1566: Editor: Object rendering refactoring
 
 0.30.0
-------
 
     Bug #416: Extreme shaking can occur during cell transitions while moving
     Bug #1003: Province Cyrodiil: Ogre Exception in Stirk
@@ -3064,7 +3200,6 @@
     Task #941: Remove unused cmake files
 
 0.29.0
-------
 
     Bug #556: Video soundtrack not played when music volume is set to zero
     Bug #829: OpenMW uses up all available vram, when playing for extended time
@@ -3133,7 +3268,6 @@
     Feature #1164: Editor: Case-insensitive sorting in tables
 
 0.28.0
-------
 
     Bug #399: Inventory changes are not visible immediately
     Bug #417: Apply weather instantly when teleporting
@@ -3221,7 +3355,6 @@
     Task #873: Unify OGRE initialisation
 
 0.27.0
-------
 
     Bug #597: Assertion `dialogue->mId == id' failed in esmstore.cpp
     Bug #794: incorrect display of decimal numbers
@@ -3248,7 +3381,6 @@
     Feature #913: Merge --master and --plugin switches
 
 0.26.0
-------
 
     Bug #274: Inconsistencies in the terrain
     Bug #557: Already-dead NPCs do not equip clothing/items.
@@ -3293,7 +3425,6 @@
     Task #707: Reorganise Compiler
 
 0.25.0
-------
 
     Bug #411: Launcher crash on OS X < 10.8
     Bug #604: Terrible performance drop in the Census and Excise Office.
@@ -3324,7 +3455,6 @@
     Feature #822: Autorepeat for slider buttons
 
 0.24.0
-------
 
     Bug #284: Book's text misalignment
     Bug #445: Camera able to get slightly below floor / terrain
@@ -3373,7 +3503,6 @@
     Feature #760: Non-removable corpses
 
 0.23.0
-------
 
     Bug #522: Player collides with placeable items
     Bug #553: Open/Close sounds played when accessing main menu w/ Journal Open
@@ -3436,7 +3565,6 @@
     Task #695: mwgui cleanup
 
 0.22.0
-------
 
     Bug #311: Potential infinite recursion in script compiler
     Bug #355: Keyboard repeat rate (in Xorg) are left disabled after game exit.
@@ -3513,7 +3641,6 @@
     Task #624: Unified implementation of type-variable sub-records
 
 0.21.0
-------
 
     Bug #253: Dialogs don't work for Russian version of Morrowind
     Bug #267: Activating creatures without dialogue can still activate the dialogue GUI
@@ -3548,7 +3675,6 @@
     Task #512: Rewrite utf8 component
 
 0.20.0
-------
 
     Bug #366: Changing the player's race during character creation does not change the look of the player character
     Bug #430: Teleporting and using loading doors linking within the same cell reloads the cell
@@ -3579,7 +3705,6 @@
     Task #446: Fix no namespace in BulletShapeLoader
 
 0.19.0
-------
 
     Bug #374: Character shakes in 3rd person mode near the origin
     Bug #404: Gamma correct rendering
@@ -3606,7 +3731,6 @@
     Task #400: Review GMST access
 
 0.18.0
-------
 
     Bug #310: Button of the "preferences menu" are too small
     Bug #361: Hand-to-hand skill is always 100
@@ -3640,7 +3764,6 @@
     Task #339: Move sounds into Action
 
 0.17.0
-------
 
     Bug #225: Valgrind reports about 40MB of leaked memory
     Bug #241: Some physics meshes still don't match
@@ -3673,7 +3796,6 @@
     Task #351: Rewrite Action class to support automatic sound playing
 
 0.16.0
-------
 
     Bug #250: OpenMW launcher erratic behaviour
     Bug #270: Crash because of underwater effect on OS X
@@ -3701,7 +3823,6 @@
     Task #290: Auto-Close MW-reference related GUI windows
 
 0.15.0
-------
 
     Bug #5: Physics reimplementation (fixes various issues)
     Bug #258: Resizing arrow's background is not transparent
@@ -3728,7 +3849,6 @@
     Task #255: Make MWWorld::Environment into a singleton
 
 0.14.0
-------
 
     Bug #1: Meshes rendered with wrong orientation
     Bug #6/Task #220: Picking up small objects doesn't always work
@@ -3758,7 +3878,6 @@
     Task #216: Update MyGUI
 
 0.13.0
-------
 
     Bug #145: Fixed sound problems after cell change
     Bug #179: Pressing space in console triggers activation
@@ -3792,7 +3911,6 @@
     Task #208: silenced esm_reader.hpp warning
 
 0.12.0
-------
 
     Bug #154: FPS Drop
     Bug #169: Local scripts continue running if associated object is deleted
@@ -3817,7 +3935,6 @@
     Task #155: cmake cleanup
 
 0.11.1
-------
 
     Bug #2: Resources loading doesn't work outside of bsa files
     Bug #3: GUI does not render non-English characters
@@ -3844,7 +3961,6 @@
     Task #123: refactor header files in components/esm
 
 0.10.0
-------
 
 * NPC dialogue window (not functional yet)
 * Collisions with objects

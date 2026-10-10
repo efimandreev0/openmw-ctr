@@ -11,6 +11,8 @@
 #include <components/esm/exteriorcelllocation.hpp>
 #include <components/esm3/loadltex.hpp>
 
+#include "landobject.hpp"
+
 namespace ESM4
 {
     struct Land;
@@ -26,48 +28,17 @@ namespace ESM
 namespace VFS
 {
     class Manager;
+
+    namespace Path
+    {
+        class Normalized;
+    }
 }
 
 namespace ESMTerrain
 {
 
     class LandCache;
-
-    /// @brief Wrapper around Land Data with reference counting. The wrapper needs to be held as long as the data is
-    /// still in use
-    class LandObject : public osg::Object
-    {
-    public:
-        LandObject() = default;
-        LandObject(const ESM::Land& land, int loadFlags);
-        LandObject(const ESM4::Land& land, int loadFlags);
-
-        META_Object(ESMTerrain, LandObject)
-
-        const ESM::LandData* getData(int flags) const
-        {
-            if ((mData.getLoadFlags() & flags) != flags)
-                return nullptr;
-
-            return &mData;
-        }
-
-        int getPlugin() const { return mData.getPlugin(); }
-
-        const Terrain::LayerInfo& getEsm4DefaultLayerInfo() const { return mEsm4DefaultLayerInfo; }
-
-    private:
-        ESM::LandData mData;
-
-        Terrain::LayerInfo mEsm4DefaultLayerInfo;
-
-        LandObject(const LandObject& copy, const osg::CopyOp& copyOp);
-    };
-
-    // Since plugins can define new texture palettes, we need to know the plugin index too
-    // in order to retrieve the correct texture name.
-    // pair  <texture id, plugin id>
-    using UniqueTextureId = std::pair<std::uint16_t, int>;
 
     /// @brief Feeds data from ESM terrain records (ESM::Land, ESM::LandTexture)
     ///        into the terrain component, converting it on the fly as needed.
@@ -79,8 +50,8 @@ namespace ESMTerrain
             std::string_view specularMapPattern = {}, bool autoUseSpecularMaps = false);
 
         // Not implemented in this class, because we need different Store implementations for game and editor
-        virtual osg::ref_ptr<const LandObject> getLand(ESM::ExteriorCellLocation cellLocation) = 0;
-        virtual const std::string* getLandTexture(std::uint16_t index, int plugin) = 0;
+        virtual std::shared_ptr<const LandObject> getLand(ESM::ExteriorCellLocation cellLocation) = 0;
+        virtual const VFS::Path::Normalized* getLandTexture(std::uint16_t index, int plugin) = 0;
 
         // Not implemented in this class because requires ESMStore
         virtual const ESM4::LandTexture* getEsm4LandTexture(ESM::RefId ltexId) const { return nullptr; }
@@ -158,9 +129,9 @@ namespace ESMTerrain
         virtual void adjustColor(int col, int row, const ESM::LandData* heightData, osg::Vec4ub& color) const;
         virtual float getAlteredHeight(int col, int row) const;
 
-        std::string getTextureName(UniqueTextureId id);
+        VFS::Path::Normalized getTextureName(UniqueTextureId id);
 
-        std::map<std::string, Terrain::LayerInfo> mLayerInfoMap;
+        std::map<VFS::Path::Normalized, Terrain::LayerInfo, std::less<>> mLayerInfoMap;
         std::mutex mLayerInfoMutex;
 
         std::string mNormalMapPattern;
@@ -170,7 +141,7 @@ namespace ESMTerrain
         std::string mSpecularMapPattern;
         bool mAutoUseSpecularMaps;
 
-        Terrain::LayerInfo getLayerInfo(const std::string& texture);
+        Terrain::LayerInfo getLayerInfo(VFS::Path::NormalizedView texture);
         Terrain::LayerInfo getTextureSetLayerInfo(const ESM4::TextureSet& txst);
         Terrain::LayerInfo getLandTextureLayerInfo(ESM::FormId id);
 

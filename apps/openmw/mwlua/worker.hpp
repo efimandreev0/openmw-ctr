@@ -29,6 +29,10 @@ namespace MWLua
 
         void finishUpdate(osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats);
 
+        void gc();
+
+        void finishGc();
+
         void join();
 
     private:
@@ -47,6 +51,8 @@ namespace MWLua
         std::mutex mMutex;
         std::condition_variable mCV;
         std::optional<UpdateRequest> mUpdateRequest;
+        bool mGcRequest = false;
+        bool mGcInProgress = false;
         bool mJoinRequest = false;
         std::optional<std::thread> mThread;
     };

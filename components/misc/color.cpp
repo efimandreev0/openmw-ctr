@@ -6,7 +6,7 @@
 #include <sstream>
 #include <system_error>
 
-#include <components/sceneutil/util.hpp>
+#include <components/sceneutil/colourutil.hpp>
 
 namespace Misc
 {

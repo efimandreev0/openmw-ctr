@@ -23,7 +23,9 @@ namespace SDLUtil
 
     VideoWrapper::~VideoWrapper()
     {
-        SDL_SetWindowFullscreen(mWindow, 0);
+        const Uint32 fullscreenFlags = SDL_GetWindowFlags(mWindow) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+        if (fullscreenFlags == SDL_WINDOW_FULLSCREEN)
+            SDL_SetWindowFullscreen(mWindow, 0);
 
         // If user hasn't touched the defaults no need to restore
         if (mHasSetGammaContrast)

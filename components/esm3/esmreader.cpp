@@ -1,5 +1,7 @@
 #include "esmreader.hpp"
 
+#include <components/files/constrainedfilestream.hpp>
+
 #include "readerscache.hpp"
 
 #include <components/esm3/cellid.hpp>
@@ -127,9 +129,23 @@ namespace ESM
         mEsm->seekg(0, mEsm->beg);
     }
 
+    namespace
+    {
+        std::unique_ptr<std::istream> openEsmFile(const std::filesystem::path& filename)
+        {
+#ifdef __3DS__
+            Files::IStreamPtr stream = Files::openConstrainedFileStream(filename);
+            stream->exceptions(std::ios::badbit);
+            return stream;
+#else
+            return Files::openBinaryInputFileStream(filename);
+#endif
+        }
+    }
+
     void ESMReader::openRaw(const std::filesystem::path& filename)
     {
-        openRaw(Files::openBinaryInputFileStream(filename), filename);
+        openRaw(openEsmFile(filename), filename);
     }
 
     void ESMReader::open(std::unique_ptr<std::istream>&& stream, const std::filesystem::path& name)
@@ -146,7 +162,7 @@ namespace ESM
 
     void ESMReader::open(const std::filesystem::path& file)
     {
-        open(Files::openBinaryInputFileStream(file), file);
+        open(openEsmFile(file), file);
     }
 
     std::string ESMReader::getHNOString(NAME name)

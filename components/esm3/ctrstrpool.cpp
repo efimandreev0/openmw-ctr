@@ -1,5 +1,6 @@
 #include "ctrstrpool.hpp"
 
+#include <cstdio>
 #include <cstring>
 
 #include <components/debug/debuglog.hpp>
@@ -8,8 +9,9 @@ namespace ESM
 {
     namespace
     {
-        constexpr char sMagic[8] = { 'O', 'M', 'W', 'S', 'P', 'O', 'L', '1' };
-        constexpr uint32_t sHeaderSize = 16; // magic + fingerprint
+        constexpr char sMagic[8] = { 'O', 'M', 'W', 'S', 'P', 'O', 'L', '2' };
+        constexpr uint32_t sHeaderSize = 24; // magic + fingerprint + completed size (0 while building)
+        constexpr long sCompletedSizeOffset = 16;
     }
 
     CtrStrPool& CtrStrPool::instance()
@@ -25,15 +27,26 @@ namespace ESM
             return;
 
         // Try to reuse an existing pool with a matching fingerprint.
+        mPath = path;
         if (FILE* f = fopen(path.c_str(), "rb"))
         {
             char magic[8];
             uint64_t fp = 0;
-            if (fread(magic, 1, 8, f) == 8 && fread(&fp, 8, 1, f) == 1 && memcmp(magic, sMagic, 8) == 0
-                && fp == fingerprint)
+            uint64_t completedSize = 0;
+            bool valid = fread(magic, 1, 8, f) == 8 && fread(&fp, 8, 1, f) == 1
+                && fread(&completedSize, 8, 1, f) == 1 && memcmp(magic, sMagic, 8) == 0 && fp == fingerprint
+                && completedSize >= sHeaderSize;
+            if (valid)
+            {
+                valid = fseek(f, 0, SEEK_END) == 0 && static_cast<uint64_t>(ftell(f)) == completedSize;
+                if (!valid)
+                    Log(Debug::Warning) << "[CtrStrPool] " << path << " is incomplete, rebuilding it";
+            }
+            if (valid)
             {
                 mFile = f;
                 mCursor = sHeaderSize;
+                mReuseSize = static_cast<uint32_t>(completedSize);
                 mMode = Mode::Reuse;
                 mFingerprint = fingerprint;
                 Log(Debug::Info) << "[CtrStrPool] Reusing string pool " << path;
@@ -48,7 +61,8 @@ namespace ESM
             Log(Debug::Warning) << "[CtrStrPool] Cannot create " << path << " - strings stay in RAM";
             return;
         }
-        if (fwrite(sMagic, 1, 8, f) != 8 || fwrite(&fingerprint, 8, 1, f) != 1)
+        const uint64_t notCompleted = 0;
+        if (fwrite(sMagic, 1, 8, f) != 8 || fwrite(&fingerprint, 8, 1, f) != 1 || fwrite(&notCompleted, 8, 1, f) != 1)
         {
             Log(Debug::Warning) << "[CtrStrPool] Header write failed - strings stay in RAM";
             fclose(f);
@@ -65,7 +79,20 @@ namespace ESM
     {
         std::lock_guard<std::mutex> lock(mMutex);
         if (mMode == Mode::Build)
-            fflush(mFile);
+        {
+            const uint64_t completedSize = mCursor;
+            if (fflush(mFile) != 0 || fseek(mFile, sCompletedSizeOffset, SEEK_SET) != 0
+                || fwrite(&completedSize, 8, 1, mFile) != 1 || fflush(mFile) != 0)
+                Log(Debug::Warning) << "[CtrStrPool] Could not mark " << mPath << " complete; it will be rebuilt";
+        }
+        else if (mMode == Mode::Reuse && mCursor != mReuseSize)
+        {
+            Log(Debug::Error) << "[CtrStrPool] " << mPath << " does not match this build (" << mCursor
+                              << " != " << mReuseSize << " bytes); it will be rebuilt on the next start";
+            fclose(mFile);
+            mFile = nullptr;
+            std::remove(mPath.c_str());
+        }
         if (mMode == Mode::Build || mMode == Mode::Reuse)
         {
             Log(Debug::Info) << "[CtrStrPool] Finalized: " << (mCursor / 1024) << "KB of strings kept on SD";

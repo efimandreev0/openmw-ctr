@@ -3,9 +3,11 @@
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
 
+#ifndef OPENMW_NO_LUA
 #include <components/lua/configuration.hpp>
 #include <components/lua/luastateptr.hpp>
 #include <components/lua/serialization.hpp>
+#endif
 
 // List of all records, that are related to Lua.
 //
@@ -93,6 +95,7 @@ void ESM::LuaScriptsCfg::load(ESMReader& esm)
     }
 }
 
+#ifndef OPENMW_NO_LUA
 void ESM::LuaScriptsCfg::adjustRefNums(const ESMReader& esm)
 {
     auto adjustRefNumFn = [&esm](int contentFile) -> int {
@@ -129,6 +132,7 @@ void ESM::LuaScriptsCfg::adjustRefNums(const ESMReader& esm)
         }
     }
 }
+#endif
 
 void ESM::LuaScriptsCfg::save(ESMWriter& esm) const
 {
@@ -169,8 +173,10 @@ void ESM::LuaScripts::load(ESMReader& esm)
         if (esm.getFormatVersion() <= ESM::MaxLuaScriptPathFormatVersion)
         {
             VFS::Path::Normalized name(esm.getHString());
+#ifndef OPENMW_NO_LUA
             if (esm.mScriptsConfiguration)
                 id = esm.mScriptsConfiguration->findId(name).value_or(-1);
+#endif
         }
         else
             esm.getHT(id);

@@ -8,6 +8,10 @@
 
 #include <components/files/conversion.hpp>
 
+#ifdef __3DS__
+extern "C" int ctr_check_fd(int fd, const char* what, void* caller);
+#endif
+
 namespace Platform::File
 {
 
@@ -37,6 +41,9 @@ namespace Platform::File
             throw std::system_error(errno, std::generic_category(),
                 std::string("Failed to open '") + Files::pathToUnicodeString(filename) + "' for reading");
         }
+#ifdef __3DS__
+        setvbuf(handle, nullptr, _IONBF, 0);
+#endif
         return static_cast<Handle>(reinterpret_cast<intptr_t>(handle));
     }
 
@@ -83,6 +90,10 @@ namespace Platform::File
     size_t read(Handle handle, void* data, size_t size)
     {
         auto nativeHandle = getNativeHandle(handle);
+#ifdef __3DS__
+        if (!ctr_check_fd(fileno(nativeHandle), "Platform::File::read", __builtin_return_address(0)))
+            throw std::system_error(EBADF, std::generic_category(), "Corrupted file handle");
+#endif
 
         int amount = fread(data, 1, size, nativeHandle);
         if (amount == 0 && ferror(nativeHandle))

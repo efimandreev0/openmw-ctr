@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <stdexcept>
 
-#include <osgDB/WriteFile>
+#include <osgDB/Registry>
 
 #include <components/esm3/containerstate.hpp>
 #include <components/esm3/creaturestate.hpp>
@@ -17,16 +17,6 @@
 
 namespace
 {
-
-    void convertImage(char* data, size_t size, int width, int height, GLenum pf, const std::string& out)
-    {
-        osg::ref_ptr<osg::Image> image(new osg::Image);
-        image->allocateImage(width, height, 1, pf, GL_UNSIGNED_BYTE);
-        memcpy(image->data(), data, size);
-        image->flipVertical();
-
-        osgDB::writeImageFile(*image, out);
-    }
 
     void convertCellRef(const ESSImport::CellRef& cellref, ESM::ObjectState& objstate)
     {
@@ -232,28 +222,6 @@ namespace ESSImport
             }
 
             esm.getT(nam8);
-
-            newcell.mFogOfWar.reserve(16 * 16);
-            for (int x = 0; x < 16; ++x)
-            {
-                for (int y = 0; y < 16; ++y)
-                {
-                    size_t pos = x * 16 + y;
-                    size_t bytepos = pos / 8;
-                    assert(bytepos < 32);
-                    int bit = pos % 8;
-                    newcell.mFogOfWar.push_back(((nam8[bytepos] >> bit) & (0x1)) ? 0xffffffff : 0x000000ff);
-                }
-            }
-
-            if (cell.isExterior())
-            {
-                std::ostringstream filename;
-                filename << "fog_" << cell.mData.mX << "_" << cell.mData.mY << ".tga";
-
-                convertImage(
-                    (char*)&newcell.mFogOfWar[0], newcell.mFogOfWar.size() * 4, 16, 16, GL_RGBA, filename.str());
-            }
         }
 
         // moved reference, not handled yet
@@ -467,6 +435,7 @@ namespace ESSImport
                 out.mBowId = ESM::RefId::stringRefId(pnam.mBowId.toString());
                 out.mVelocity = pnam.mVelocity;
                 out.mAttackStrength = pnam.mAttackStrength;
+                out.mAttackWindUp = -1;
 
                 esm.startRecord(ESM::REC_PROJ);
                 out.save(esm);

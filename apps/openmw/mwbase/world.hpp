@@ -4,6 +4,7 @@
 #include "rotationflags.hpp"
 
 #include <deque>
+#include <map>
 #include <set>
 #include <span>
 #include <string_view>
@@ -25,7 +26,6 @@ namespace osg
     class Vec4f;
     class Matrixf;
     class Quat;
-    class Image;
     class Stats;
 }
 
@@ -95,6 +95,8 @@ namespace MWWorld
     class Cell;
     class DateTimeManager;
     class Weather;
+    class WeatherStore;
+    struct Moon;
 
     typedef std::vector<std::pair<MWWorld::Ptr, MWMechanics::Movement>> PtrMovementList;
 }
@@ -160,6 +162,8 @@ namespace MWBase
 
         virtual bool isCellQuasiExterior() const = 0;
 
+        virtual const std::set<MWWorld::CellStore*, std::less<>>& getActiveCells() const = 0;
+
         virtual void getDoorMarkers(MWWorld::CellStore& cell, std::vector<DoorMarker>& out) = 0;
         ///< get a list of teleport door markers for a given cell, to be displayed on the local map
 
@@ -213,19 +217,13 @@ namespace MWBase
         virtual bool toggleSky() = 0;
         ///< \return Resulting mode
 
-        virtual void changeWeather(const ESM::RefId& region, const unsigned int id) = 0;
+        virtual void changeWeather(ESM::RefId region, ESM::RefId id) = 0;
 
-        virtual void changeWeather(const ESM::RefId& region, const ESM::RefId& id) = 0;
-
-        virtual const std::vector<MWWorld::Weather>& getAllWeather() const = 0;
+        virtual const MWWorld::WeatherStore& getAllWeather() const = 0;
 
         virtual int getCurrentWeatherScriptId() const = 0;
 
         virtual const MWWorld::Weather& getCurrentWeather() const = 0;
-
-        virtual const MWWorld::Weather* getWeather(size_t index) const = 0;
-
-        virtual const MWWorld::Weather* getWeather(const ESM::RefId& id) const = 0;
 
         virtual int getNextWeatherScriptId() const = 0;
 
@@ -239,9 +237,12 @@ namespace MWBase
 
         virtual int getSecundaPhase() const = 0;
 
+        virtual std::vector<MWWorld::Moon> getCurrentMoons() const = 0;
+
         virtual void setMoonColour(bool red) = 0;
 
-        virtual void modRegion(const ESM::RefId& regionid, const std::vector<uint8_t>& chances) = 0;
+        virtual void modRegion(ESM::RefId regionid, const std::map<ESM::RefId, uint8_t>& chances) = 0;
+        virtual const std::map<ESM::RefId, uint8_t>& getRegionWeatherChances(ESM::RefId regionid) const = 0;
 
         virtual void changeToInteriorCell(
             std::string_view cellName, const ESM::Position& position, bool adjustPlayerPos, bool changeEvent = true)
@@ -258,6 +259,8 @@ namespace MWBase
         ///< Return pointer to the object the player is looking at, if it is within activation range
 
         virtual float getDistanceToFocusObject() = 0;
+
+        virtual const MWPhysics::RayCastingResult& getFocusRay() const = 0;
 
         virtual float getMaxActivationDistance() const = 0;
 
@@ -313,7 +316,7 @@ namespace MWBase
         virtual const MWPhysics::RayCastingInterface* getRayCasting() const = 0;
 
         virtual bool castRenderingRay(MWPhysics::RayCastingResult& res, const osg::Vec3f& from, const osg::Vec3f& to,
-            bool ignorePlayer, bool ignoreActors, std::span<const MWWorld::Ptr> ignoreList = {})
+            bool ignorePlayer, bool ignoreActors, bool ignoreTerrain, std::span<const MWWorld::Ptr> ignoreList = {})
             = 0;
 
         virtual void setActorCollisionMode(const MWWorld::Ptr& ptr, bool internal, bool external) = 0;
@@ -434,7 +437,7 @@ namespace MWBase
         virtual void reattachPlayerCamera() = 0;
 
         /// \todo this does not belong here
-        virtual void screenshot(osg::Image* image, int w, int h) = 0;
+        virtual std::vector<char> screenshot(int w, int h) = 0;
 
         /// Find default position inside exterior cell specified by name
         /// \return empty RefId if exterior with given name not exists, the cell's RefId otherwise
@@ -476,7 +479,7 @@ namespace MWBase
             const osg::Vec3f& fallbackDirection, ESM::RefNum item)
             = 0;
         virtual void launchProjectile(MWWorld::Ptr& actor, MWWorld::Ptr& projectile, const osg::Vec3f& worldPos,
-            const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength)
+            const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength, float attackWindUp)
             = 0;
         virtual void updateProjectilesCasters() = 0;
 

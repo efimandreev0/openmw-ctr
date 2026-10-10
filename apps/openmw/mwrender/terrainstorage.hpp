@@ -21,8 +21,8 @@ namespace MWRender
             std::string_view specularMapPattern = {}, bool autoUseSpecularMaps = false);
         ~TerrainStorage();
 
-        osg::ref_ptr<const ESMTerrain::LandObject> getLand(ESM::ExteriorCellLocation cellLocation) override;
-        const std::string* getLandTexture(std::uint16_t index, int plugin) override;
+        std::shared_ptr<const ESMTerrain::LandObject> getLand(ESM::ExteriorCellLocation cellLocation) override;
+        const VFS::Path::Normalized* getLandTexture(std::uint16_t index, int plugin) override;
 
         const ESM4::LandTexture* getEsm4LandTexture(ESM::RefId ltexId) const override;
         const ESM4::TextureSet* getEsm4TextureSet(ESM::RefId txstId) const override;

@@ -1,10 +1,17 @@
 #include "object.hpp"
 #include "mtphysics.hpp"
+#include <memory>
 
 #include <components/bullethelpers/collisionobject.hpp>
 #include <components/debug/debuglog.hpp>
 #include <components/misc/convert.hpp>
+#ifdef OPENMW_CTR_NATIVE
+#include "../mwbase/environment.hpp"
+#include "../mwbase/world.hpp"
+#include "../mwrender/animation.hpp"
+#else
 #include <components/nifosg/particle.hpp>
+#endif
 #include <components/resource/bulletshape.hpp>
 #include <components/sceneutil/positionattitudetransform.hpp>
 
@@ -14,7 +21,7 @@
 
 namespace MWPhysics
 {
-    Object::Object(const MWWorld::Ptr& ptr, osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance,
+    Object::Object(const MWWorld::Ptr& ptr, std::shared_ptr<Resource::BulletShapeInstance> shapeInstance,
         osg::Quat rotation, int collisionType, PhysicsTaskScheduler* scheduler)
         : PtrHolder(ptr, osg::Vec3f())
         , mShapeInstance(std::move(shapeInstance))
@@ -38,9 +45,9 @@ namespace MWPhysics
         mTaskScheduler->removeCollisionObject(mCollisionObject.get());
     }
 
-    const Resource::BulletShapeInstance* Object::getShapeInstance() const
+    const std::shared_ptr<Resource::BulletShapeInstance>& Object::getShapeInstance() const
     {
-        return mShapeInstance.get();
+        return mShapeInstance;
     }
 
     void Object::setScale(float scale)
@@ -118,8 +125,23 @@ namespace MWPhysics
 
         btCompoundShape* compound = static_cast<btCompoundShape*>(mShapeInstance->mCollisionShape.get());
         bool result = false;
+#ifdef OPENMW_CTR_NATIVE
+        const MWRender::Animation* animation = MWBase::Environment::get().getWorld()->getAnimation(mPtr);
+        if (!animation)
+            return false;
+#endif
         for (const auto& [recordIndex, shapeIndex] : mShapeInstance->mAnimatedShapes)
         {
+#ifdef OPENMW_CTR_NATIVE
+            osg::Matrixf matrix;
+            if (!animation->getNodeObjectMatrixByRecordIndex(recordIndex, matrix))
+            {
+                Log(Debug::Warning) << "Warning: animateCollisionShapes can't find node " << recordIndex << " for "
+                                    << mPtr.getCellRef().getRefId();
+                mShapeInstance->mAnimatedShapes.erase(recordIndex);
+                return false;
+            }
+#else
             auto nodePathFound = mRecordIndexToNodePath.find(recordIndex);
             if (nodePathFound == mRecordIndexToNodePath.end())
             {
@@ -141,6 +163,7 @@ namespace MWPhysics
 
             osg::NodePath& nodePath = nodePathFound->second;
             osg::Matrixf matrix = osg::computeLocalToWorld(nodePath);
+#endif
             btVector3 scale = Misc::Convert::toBullet(matrix.getScale());
             matrix.orthoNormalize(matrix);
 

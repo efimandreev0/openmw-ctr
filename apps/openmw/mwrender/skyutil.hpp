@@ -1,7 +1,8 @@
 #ifndef OPENMW_MWRENDER_SKYUTIL_H
 #define OPENMW_MWRENDER_SKYUTIL_H
 
-#include <osg/Material>
+#include "weatherresult.hpp"
+
 #include <osg/Matrixf>
 #include <osg/Texture2D>
 #include <osg/Transform>
@@ -11,6 +12,7 @@
 #include <osgParticle/Shooter>
 
 #include <components/esm/refid.hpp>
+#include <components/sceneutil/material.hpp>
 #include <components/sceneutil/nodecallback.hpp>
 #include <components/sceneutil/statesetupdater.hpp>
 
@@ -26,87 +28,6 @@ namespace MWRender
     class SunUpdater;
     class SunFlashCallback;
     class SunGlareCallback;
-
-    struct WeatherResult
-    {
-        std::string mCloudTexture;
-        std::string mNextCloudTexture;
-        float mCloudBlendFactor;
-
-        osg::Vec4f mFogColor;
-
-        osg::Vec4f mAmbientColor;
-
-        osg::Vec4f mSkyColor;
-
-        // sun light color
-        osg::Vec4f mSunColor;
-
-        // alpha is the sun transparency
-        osg::Vec4f mSunDiscColor;
-
-        float mFogDepth;
-
-        float mDLFogFactor;
-        float mDLFogOffset;
-
-        float mWindSpeed;
-        float mBaseWindSpeed;
-        float mCurrentWindSpeed;
-        float mNextWindSpeed;
-
-        float mCloudSpeed;
-
-        float mGlareView;
-
-        bool mNight; // use night skybox
-        float mNightFade; // fading factor for night skybox
-
-        bool mIsStorm;
-
-        ESM::RefId mAmbientLoopSoundID;
-        ESM::RefId mRainLoopSoundID;
-        float mAmbientSoundVolume;
-
-        std::string mParticleEffect;
-        std::string mRainEffect;
-        float mPrecipitationAlpha;
-
-        float mRainDiameter;
-        float mRainMinHeight;
-        float mRainMaxHeight;
-        float mRainSpeed;
-        float mRainEntranceSpeed;
-        int mRainMaxRaindrops;
-
-        osg::Vec3f mStormDirection;
-        osg::Vec3f mNextStormDirection;
-    };
-
-    struct MoonState
-    {
-        enum class Phase
-        {
-            Full,
-            WaningGibbous,
-            ThirdQuarter,
-            WaningCrescent,
-            New,
-            WaxingCrescent,
-            FirstQuarter,
-            WaxingGibbous,
-            Unspecified
-        };
-
-        float mRotationFromHorizon;
-        float mRotationFromNorth;
-        Phase mPhase;
-        float mShadowBlend;
-        float mMoonAlpha;
-    };
-
-    osg::ref_ptr<osg::Material> createAlphaTrackingUnlitMaterial();
-    osg::ref_ptr<osg::Material> createUnlitMaterial(osg::Material::ColorMode colorMode = osg::Material::OFF);
 
     class OcclusionCallback
     {
@@ -140,7 +61,7 @@ namespace MWRender
     class AtmosphereNightUpdater : public SceneUtil::StateSetUpdater
     {
     public:
-        AtmosphereNightUpdater(Resource::ImageManager* imageManager, bool forceShaders);
+        AtmosphereNightUpdater(Resource::ImageManager* imageManager);
 
         void setFade(float fade);
 
@@ -152,13 +73,12 @@ namespace MWRender
     private:
         osg::Vec4f mColor;
         osg::ref_ptr<osg::Texture2D> mTexture;
-        bool mForceShaders;
     };
 
     class CloudUpdater : public SceneUtil::StateSetUpdater
     {
     public:
-        CloudUpdater(bool forceShaders);
+        CloudUpdater();
 
         void setTexture(osg::ref_ptr<osg::Texture2D> texture);
 
@@ -174,7 +94,6 @@ namespace MWRender
         osg::ref_ptr<osg::Texture2D> mTexture;
         osg::Vec4f mEmissionColor;
         float mOpacity;
-        bool mForceShaders;
         osg::Matrixf mTexMat;
     };
 

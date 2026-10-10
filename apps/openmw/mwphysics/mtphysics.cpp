@@ -18,6 +18,7 @@
 
 #include <BulletCollision/BroadphaseCollision/btDbvtBroadphase.h>
 #include <BulletCollision/CollisionShapes/btCollisionShape.h>
+#include <LinearMath/btIDebugDraw.h>
 #include <LinearMath/btThreads.h>
 
 #include <osg/Stats>
@@ -29,8 +30,6 @@
 
 #include "../mwmechanics/actorutil.hpp"
 #include "../mwmechanics/creaturestats.hpp"
-
-#include "../mwrender/bulletdebugdraw.hpp"
 
 #include "../mwworld/class.hpp"
 
@@ -290,7 +289,8 @@ namespace
                         if (ptrHolder != nullptr)
                             standingOn = ptrHolder->getPtr();
                     }
-                    actor->setStandingOnPtr(standingOn);
+                    if (!frameData.mIdleSkipped)
+                        actor->setStandingOnPtr(standingOn);
                     // the "on ground" state of an actor might have been updated by a traceDown, don't overwrite the
                     // change
                     if (actor->getOnGround() == frameData.mWasOnGround)
@@ -468,13 +468,11 @@ namespace MWPhysics
         std::mutex mHasJobMutex;
     };
 
-    PhysicsTaskScheduler::PhysicsTaskScheduler(
-        float physicsDt, btCollisionWorld* collisionWorld, MWRender::DebugDrawer* debugDrawer)
+    PhysicsTaskScheduler::PhysicsTaskScheduler(float physicsDt, btCollisionWorld* collisionWorld)
         : mDefaultPhysicsDt(physicsDt)
         , mPhysicsDt(physicsDt)
         , mTimeAccum(0.f)
         , mCollisionWorld(collisionWorld)
-        , mDebugDrawer(debugDrawer)
         , mLockingPolicy(detectLockingPolicy())
         , mNumThreads(getNumThreads(mLockingPolicy))
         , mNumJobs(0)
@@ -874,6 +872,9 @@ namespace MWPhysics
         btVector3 pos2 = Misc::Convert::toBullet(
             actor2->getCollisionObjectPosition() + osg::Vec3f(0, 0, actor2->getHalfExtents().z() * 0.9f));
 
+        if ((pos2 - pos1).fuzzyZero())
+            return true;
+
         btCollisionWorld::ClosestRayResultCallback resultCallback(pos1, pos2);
         resultCallback.m_collisionFilterGroup = CollisionType_AnyPhysical;
         resultCallback.m_collisionFilterMask = CollisionType_World | CollisionType_HeightMap | CollisionType_Door;
@@ -920,7 +921,10 @@ namespace MWPhysics
     void PhysicsTaskScheduler::debugDraw()
     {
         MaybeSharedLock lock(mCollisionWorldMutex, mLockingPolicy);
-        mDebugDrawer->step();
+        btIDebugDraw* debugDrawer = mCollisionWorld->getDebugDrawer();
+        debugDrawer->clearLines();
+        mCollisionWorld->debugDrawWorld();
+        debugDrawer->flushLines();
     }
 
     void* PhysicsTaskScheduler::getUserPointer(const btCollisionObject* object) const

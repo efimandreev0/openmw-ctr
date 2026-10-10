@@ -156,5 +156,12 @@ function aux_util.shallowCopy(table)
     return copy
 end
 
+function aux_util.random(min, max)
+    if max <= min then
+        return min
+    end
+    return math.random(min, max)
+end
+
 return aux_util
 

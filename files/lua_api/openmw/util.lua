@@ -1,6 +1,5 @@
 ---
 -- Defines utility functions and classes like 3D vectors, that don't depend on the game world.
--- @context global|menu|local|player
 -- @module util
 -- @usage local util = require('openmw.util')
 
@@ -217,7 +216,6 @@
 -- v1 * x         -- multiplication by a number
 -- v1 / x         -- division by a number
 -- v1.zyz, v1.yx  -- swizzle with standard fields
--- v1.w1y, v1.z0z -- swizzle with 0/1 constant
 -- v1['0xy']      -- swizzle with 0/1 constant starting with 0 or 1
 
 ---

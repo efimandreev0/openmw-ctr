@@ -1,18 +1,25 @@
 #include "bulletshapemanager.hpp"
+#include <memory>
 
 #include <cstring>
 
+#ifndef __3DS__
 #include <osg/Drawable>
 #include <osg/NodeVisitor>
 #include <osg/Transform>
 #include <osg/TriangleFunctor>
+#endif
 
 #include <BulletCollision/CollisionShapes/btTriangleMesh.h>
 
 #include <components/misc/convert.hpp>
+#ifndef __3DS__
 #include <components/misc/osguservalues.hpp>
+#endif
 #include <components/misc/pathhelpers.hpp>
+#ifndef __3DS__
 #include <components/sceneutil/visitor.hpp>
+#endif
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
 
@@ -22,10 +29,13 @@
 #include "multiobjectcache.hpp"
 #include "niffilemanager.hpp"
 #include "objectcache.hpp"
+#ifndef __3DS__
 #include "scenemanager.hpp"
+#endif
 
 namespace Resource
 {
+#ifndef __3DS__
 
     struct GetTriangleFunctor
     {
@@ -72,12 +82,12 @@ namespace Resource
             drawable.accept(functor);
         }
 
-        osg::ref_ptr<BulletShape> getShape()
+        std::shared_ptr<BulletShape> getShape()
         {
             if (!mTriangleMesh || mTriangleMesh->getNumTriangles() == 0)
-                return osg::ref_ptr<BulletShape>();
+                return std::shared_ptr<BulletShape>();
 
-            osg::ref_ptr<BulletShape> shape(new BulletShape);
+            auto shape = std::make_shared<BulletShape>();
 
             auto triangleMeshShape = std::make_unique<TriangleMeshShape>(mTriangleMesh.release(), true);
             btVector3 aabbMin = triangleMeshShape->getLocalAabbMin();
@@ -95,11 +105,12 @@ namespace Resource
     private:
         std::unique_ptr<btTriangleMesh> mTriangleMesh;
     };
+#endif
 
     BulletShapeManager::BulletShapeManager(
         const VFS::Manager* vfs, SceneManager* sceneMgr, NifFileManager* nifFileManager, double expiryDelay)
         : ResourceManager(vfs, expiryDelay)
-        , mInstanceCache(new MultiObjectCache)
+        , mInstanceCache(std::make_unique<MultiObjectCache<std::shared_ptr<BulletShapeInstance>>>())
         , mSceneManager(sceneMgr)
         , mNifFileManager(nifFileManager)
     {
@@ -107,18 +118,19 @@ namespace Resource
 
     BulletShapeManager::~BulletShapeManager() = default;
 
-    osg::ref_ptr<const BulletShape> BulletShapeManager::getShape(VFS::Path::NormalizedView name)
+    std::shared_ptr<const BulletShape> BulletShapeManager::getShape(VFS::Path::NormalizedView name)
     {
-        if (osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(name))
-            return osg::ref_ptr<BulletShape>(static_cast<BulletShape*>(obj.get()));
+        if (std::shared_ptr<const BulletShape> cached = mCache->getRefFromObjectCache(name))
+            return cached;
 
-        osg::ref_ptr<BulletShape> shape;
+        std::shared_ptr<BulletShape> shape;
 
         if (Misc::getFileExtension(name.value()) == "nif")
         {
             NifBullet::BulletNifLoader loader;
             shape = loader.load(*mNifFileManager->get(name));
         }
+#ifndef __3DS__
         else
         {
             // TODO: support .bullet shape files
@@ -149,7 +161,7 @@ namespace Resource
                 node->accept(visitor);
                 shape = visitor.getShape();
                 if (!shape)
-                    return osg::ref_ptr<BulletShape>();
+                    return std::shared_ptr<BulletShape>();
             }
 
             if (shape != nullptr)
@@ -158,44 +170,45 @@ namespace Resource
                 constNode->getUserValue(Misc::OsgUserValues::sFileHash, shape->mFileHash);
             }
         }
+#endif
 
         mCache->addEntryToObjectCache(name.value(), shape);
 
         return shape;
     }
 
-    osg::ref_ptr<BulletShapeInstance> BulletShapeManager::cacheInstance(VFS::Path::NormalizedView name)
+    std::shared_ptr<BulletShapeInstance> BulletShapeManager::cacheInstance(VFS::Path::NormalizedView name)
     {
-        osg::ref_ptr<BulletShapeInstance> instance = createInstance(name);
+        std::shared_ptr<BulletShapeInstance> instance = createInstance(name);
         if (instance != nullptr)
-            mInstanceCache->addEntryToObjectCache(name, instance.get());
+            mInstanceCache->addEntryToObjectCache(name, instance);
         return instance;
     }
 
-    osg::ref_ptr<BulletShapeInstance> BulletShapeManager::getInstance(VFS::Path::NormalizedView name)
+    std::shared_ptr<BulletShapeInstance> BulletShapeManager::getInstance(VFS::Path::NormalizedView name)
     {
-        if (osg::ref_ptr<osg::Object> obj = mInstanceCache->takeFromObjectCache(name))
-            return static_cast<BulletShapeInstance*>(obj.get());
+        if (std::shared_ptr<BulletShapeInstance> cached = mInstanceCache->takeFromObjectCache(name))
+            return cached;
         return createInstance(name);
     }
 
-    osg::ref_ptr<BulletShapeInstance> BulletShapeManager::createInstance(VFS::Path::NormalizedView name)
+    std::shared_ptr<BulletShapeInstance> BulletShapeManager::createInstance(VFS::Path::NormalizedView name)
     {
-        if (osg::ref_ptr<const BulletShape> shape = getShape(name))
+        if (std::shared_ptr<const BulletShape> shape = getShape(name))
             return makeInstance(std::move(shape));
-        return osg::ref_ptr<BulletShapeInstance>();
+        return std::shared_ptr<BulletShapeInstance>();
     }
 
     void BulletShapeManager::updateCache(double referenceTime)
     {
-        ResourceManager::updateCache(referenceTime);
+        ResourceManager<std::shared_ptr<const BulletShape>>::updateCache(referenceTime);
 
         mInstanceCache->removeUnreferencedObjectsInCache();
     }
 
     void BulletShapeManager::clearCache()
     {
-        ResourceManager::clearCache();
+        ResourceManager<std::shared_ptr<const BulletShape>>::clearCache();
 
         mInstanceCache->clear();
     }

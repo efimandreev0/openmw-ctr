@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/bulletdebugdraw.hpp"
+#else
 #ifndef OPENMW_MWRENDER_BULLETDEBUGDRAW_H
 #define OPENMW_MWRENDER_BULLETDEBUGDRAW_H
 
@@ -9,8 +12,6 @@
 #include <osg/ref_ptr>
 
 #include <LinearMath/btIDebugDraw.h>
-
-class btCollisionWorld;
 
 namespace osg
 {
@@ -41,7 +42,6 @@ namespace MWRender
 
     protected:
         osg::ref_ptr<osg::Group> mParentNode;
-        btCollisionWorld* mWorld;
         osg::ref_ptr<osg::Geometry> mLinesGeometry;
         osg::ref_ptr<osg::Geometry> mTrisGeometry;
         osg::ref_ptr<osg::Vec3Array> mLinesVertices;
@@ -56,23 +56,24 @@ namespace MWRender
         void destroyGeometry();
 
     public:
-        DebugDrawer(osg::ref_ptr<osg::Group> parentNode, btCollisionWorld* world, int debugMode = 1);
+        explicit DebugDrawer(osg::ref_ptr<osg::Group> parentNode);
         ~DebugDrawer();
 
-        void step();
+        void clearLines() override;
+
+        void flushLines() override;
 
         void drawLine(const btVector3& from, const btVector3& to, const btVector3& color) override;
 
         void drawTriangle(
             const btVector3& v0, const btVector3& v1, const btVector3& v2, const btVector3& color, btScalar) override;
 
-        void addCollision(const btVector3& orig, const btVector3& normal);
-
         void showCollisions();
 
-        void drawContactPoint(const btVector3& /*pointOnB*/, const btVector3& /*normalOnB*/, btScalar /*distance*/,
+        void drawContactPoint(const btVector3& pointOnB, const btVector3& normalOnB, btScalar /*distance*/,
             int /*lifeTime*/, const btVector3& /*color*/) override
         {
+            mCollisionViews.emplace_back(pointOnB, normalOnB);
         }
         void drawSphere(btScalar radius, const btTransform& transform, const btVector3& color) override;
 
@@ -90,3 +91,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

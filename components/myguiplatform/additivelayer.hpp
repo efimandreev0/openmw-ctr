@@ -25,7 +25,9 @@ namespace MyGUIPlatform
         void renderToTarget(MyGUI::IRenderTarget* target, bool update) override;
 
     private:
+#ifndef __3DS__
         osg::ref_ptr<osg::StateSet> mStateSet;
+#endif
     };
 
 }

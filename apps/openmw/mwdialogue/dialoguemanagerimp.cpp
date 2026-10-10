@@ -50,7 +50,7 @@
 #include "../mwmechanics/npcstats.hpp"
 
 #include "filter.hpp"
-#include "hypertextparser.hpp"
+#include "keywordsearch.hpp"
 
 namespace MWDialogue
 {
@@ -77,6 +77,8 @@ namespace MWDialogue
         mOriginalDisposition = 0;
         mCurrentDisposition = 0;
         mPermanentDispositionChange = 0;
+        mKeywordSearch.clear();
+        mKeywordSearchInitialized = false;
     }
 
     void DialogueManager::addTopic(const ESM::RefId& topic)
@@ -84,28 +86,30 @@ namespace MWDialogue
         mKnownTopics.insert(topic);
     }
 
-    std::vector<ESM::RefId> DialogueManager::parseTopicIdsFromText(const std::string& text)
+    const MWDialogue::KeywordSearch& DialogueManager::getKeywordSearch() const
+    {
+        const auto& dialogue = MWBase::Environment::get().getESMStore()->get<ESM::Dialogue>();
+        if (dialogue.getKeywordSearchModFlag() || !mKeywordSearchInitialized)
+        {
+            mKeywordSearch.clear();
+
+            for (const ESM::Dialogue& topic : dialogue)
+                mKeywordSearch.seed(mTranslationDataStorage.topicKeyword(topic.mStringId), topic.mStringId);
+
+            mKeywordSearchInitialized = true;
+        }
+
+        return mKeywordSearch;
+    }
+
+    std::vector<ESM::RefId> DialogueManager::parseTopicIdsFromText(const std::string& text) const
     {
         std::vector<ESM::RefId> topicIdList;
 
-        std::vector<HyperTextParser::Token> hypertext = HyperTextParser::parseHyperText(text);
+        std::vector<KeywordSearch::Match> matches = getKeywordSearch().parseHyperText(text, mTranslationDataStorage);
 
-        for (std::vector<HyperTextParser::Token>::iterator tok = hypertext.begin(); tok != hypertext.end(); ++tok)
-        {
-            std::string topicId = Misc::StringUtils::lowerCase(tok->mText);
-
-            if (tok->isExplicitLink())
-            {
-                // calculation of standard form for all hyperlinks
-                size_t asteriskCount = HyperTextParser::removePseudoAsterisks(topicId);
-                for (; asteriskCount > 0; --asteriskCount)
-                    topicId.append("*");
-
-                topicId = mTranslationDataStorage.topicStandardForm(topicId);
-            }
-
-            topicIdList.push_back(ESM::RefId::stringRefId(topicId));
-        }
+        for (const auto& match : matches)
+            topicIdList.push_back(ESM::RefId::stringRefId(match.mTopicId));
 
         return topicIdList;
     }
@@ -171,8 +175,10 @@ namespace MWDialogue
             if (dialogue.mType == ESM::Dialogue::Greeting)
             {
                 // Search a response (we do not accept a fallback to "Info refusal" here)
-                if (const ESM::DialInfo* info = filter.search(dialogue, false).second)
+                if (const ESM::DialInfo* found = filter.search(dialogue, false).second)
                 {
+                    const ESM::DialInfo infoCopy = *found;
+                    const ESM::DialInfo* info = &infoCopy;
                     creatureStats.talkedToPlayer();
 
                     if (!info->mSound.empty())
@@ -291,10 +297,12 @@ namespace MWDialogue
 
         const ESM::Dialogue& dialogue = *dialogues.find(topic);
 
-        const auto [responseTopic, info] = filter.search(dialogue, true);
+        const auto [responseTopic, found] = filter.search(dialogue, true);
 
-        if (info)
+        if (found)
         {
+            const ESM::DialInfo infoCopy = *found;
+            const ESM::DialInfo* info = &infoCopy;
             std::string_view title;
             if (dialogue.mType == ESM::Dialogue::Persuasion)
             {
@@ -491,9 +499,11 @@ namespace MWDialogue
 
             if (dialogue->mType == ESM::Dialogue::Topic || dialogue->mType == ESM::Dialogue::Greeting)
             {
-                const auto [responseTopic, info] = filter.search(*dialogue, true);
-                if (info)
+                const auto [responseTopic, found] = filter.search(*dialogue, true);
+                if (found)
                 {
+                    const ESM::DialInfo infoCopy = *found;
+                    const ESM::DialInfo* info = &infoCopy;
                     const std::string text = info->getResponse();
                     addTopicsFromText(text);
 
@@ -622,7 +632,8 @@ namespace MWDialogue
         std::vector<Filter::Response> infos = filter.list(dialogue, false, false, true);
         if (!infos.empty())
         {
-            const ESM::DialInfo* info = infos[0].second;
+            const ESM::DialInfo infoCopy = *infos[0].second;
+            const ESM::DialInfo* info = &infoCopy;
 
             addTopicsFromText(info->getResponse());
 
@@ -667,9 +678,11 @@ namespace MWDialogue
 
         const MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
         Filter filter(actor, 0, creatureStats.hasTalkedToPlayer());
-        const ESM::DialInfo* info = filter.search(*dial, false).second;
-        if (info != nullptr)
+        const ESM::DialInfo* found = filter.search(*dial, false).second;
+        if (found != nullptr)
         {
+            const ESM::DialInfo infoCopy = *found;
+            const ESM::DialInfo* info = &infoCopy;
             MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
             if (Settings::gui().mSubtitles)
                 winMgr->messageBox(info->getResponse());
@@ -679,7 +692,7 @@ namespace MWDialogue
                 executeScript(info->getResultScript(), actor);
             MWBase::Environment::get().getLuaManager()->onDialogueResponse(actor, *info, *dial);
         }
-        return info != nullptr;
+        return found != nullptr;
     }
 
     size_t DialogueManager::countSavedGameRecords() const

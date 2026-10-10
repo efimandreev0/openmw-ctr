@@ -8,6 +8,7 @@
 **/
 
 #include <memory>
+#include <set>
 #include <vector>
 
 #include <osg/ref_ptr>
@@ -19,7 +20,9 @@
 #include <components/myguiplatform/myguiplatform.hpp>
 #include <components/sdlutil/events.hpp>
 #include <components/sdlutil/sdlcursormanager.hpp>
+#ifndef OPENMW_CTR_NATIVE
 #include <components/sdlutil/sdlvideowrapper.hpp>
+#endif
 #include <components/settings/settings.hpp>
 #include <components/toutf8/toutf8.hpp>
 
@@ -124,13 +127,19 @@ namespace MWGui
     class WindowManager : public MWBase::WindowManager
     {
     public:
+#ifdef OPENMW_CTR_NATIVE
+        void renderGui(bool bottomScreen);
+        void setBottomScreenLayers(std::set<std::string> layers, std::set<std::string> bothScreens);
+        bool hasBottomScreen() const;
+        bool isSceneEnabled() const;
+#endif
         typedef std::pair<std::string, int> Faction;
         typedef std::vector<Faction> FactionList;
 
         WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
-            Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
+            Resource::ResourceSystem* resourceSystem, const std::shared_ptr<SceneUtil::WorkQueue>& workQueue,
             const std::filesystem::path& logpath, bool consoleOnlyScripts, Translation::Storage& translationDataStorage,
-            ToUTF8::FromType encoding, bool exportFonts, const std::string& versionDescription, bool useShaders,
+            ToUTF8::FromType encoding, bool exportFonts, const std::string& versionDescription,
             Files::ConfigurationManager& cfgMgr);
         virtual ~WindowManager();
 
@@ -280,6 +289,8 @@ namespace MWGui
 
         void update(float duration);
 
+        void updateMouseEmulationCursor();
+
         /**
          * Fetches a GMST string from the store, if there is no setting with the given
          * ID or it is not a string the default string is returned.
@@ -314,6 +325,11 @@ namespace MWGui
         void showSoulgemDialog(MWWorld::Ptr item) override;
 
         void changePointer(const std::string& name) override;
+        void createLuaCursor(const std::string& name, const std::string& path, int width, int height, int hotspotX,
+            int hotspotY, double rotation) override;
+        void removeLuaCursor(const std::string& name) override;
+        void setLuaCursorOverride(const std::string& name) override;
+        std::string getCurrentCursorName() const override;
 
         void setEnemy(const MWWorld::Ptr& enemy) override;
 
@@ -325,6 +341,7 @@ namespace MWGui
 
         /// Call when mouse cursor or buttons are used.
         void setCursorActive(bool active) override;
+        void setCursorInteractionEnabled(bool enabled) override;
 
         /// Clear all savegame-specific data
         void clear() override;
@@ -415,10 +432,14 @@ namespace MWGui
 
         const MWWorld::ESMStore* mStore;
         Resource::ResourceSystem* mResourceSystem;
-        osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
+        std::shared_ptr<SceneUtil::WorkQueue> mWorkQueue;
 
         std::unique_ptr<MyGUIPlatform::Platform> mGuiPlatform;
         osgViewer::Viewer* mViewer;
+#ifdef OPENMW_CTR_NATIVE
+        uint32_t mCullMask = ~0u;
+#endif
+        osg::Group* sceneRoot() const;
 
         std::unique_ptr<Gui::FontLoader> mFontLoader;
         std::unique_ptr<StatsWatcher> mStatsWatcher;
@@ -503,6 +524,7 @@ namespace MWGui
         bool mHudEnabled;
         bool mCursorVisible;
         bool mCursorActive;
+        bool mCursorInteractionEnabled;
 
         int mPlayerBounty;
 
@@ -537,6 +559,8 @@ namespace MWGui
         void reapplyActiveControllerWindow();
 
         std::unique_ptr<SDLUtil::SDLCursorManager> mCursorManager;
+        std::string mLuaCursorOverride;
+        std::string mMyGuiCursor;
 
         std::vector<std::unique_ptr<Layout>> mGarbageDialogs;
         void cleanupGarbage();
@@ -567,7 +591,9 @@ namespace MWGui
 
         std::unique_ptr<KeyboardNavigation> mKeyboardNavigation;
 
+#ifndef OPENMW_CTR_NATIVE
         std::unique_ptr<SDLUtil::VideoWrapper> mVideoWrapper;
+#endif
 
         float mScalingFactor;
 

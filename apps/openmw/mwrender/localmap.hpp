@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/localmap.hpp"
+#else
 #ifndef GAME_RENDER_LOCALMAP_H
 #define GAME_RENDER_LOCALMAP_H
 
@@ -166,3 +169,4 @@ namespace MWRender
 
 }
 #endif
+#endif // OPENMW_CTR_NATIVE

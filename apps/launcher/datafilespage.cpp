@@ -164,6 +164,9 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     ui.setupUi(this);
     mDirectoryPicker.setupUi(mDirectoryPickerDialog);
     setObjectName("DataFilesPage");
+
+    ui.directoryListWidget->installEventFilter(this);
+
     mSelector = new ContentSelectorView::ContentSelector(ui.contentSelectorWidget, /*showOMWScripts=*/true);
     const QString encoding = mGameSettings.value("encoding", { "win1252" }).value;
     mSelector->setEncoding(encoding);
@@ -506,7 +509,8 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
             nonUserContent.push_back(content.value);
     }
     mSelector->setNonUserContent(nonUserContent);
-    mSelector->setProfileContent(mLauncherSettings.getContentListFiles(contentModelName));
+    mSelector->setProfileContent(mLauncherSettings.getContentListFiles(contentModelName),
+        mLauncherSettings.getUserFilesInOrder(contentModelName));
 }
 
 void Launcher::DataFilesPage::saveSettings(const QString& profile)
@@ -545,7 +549,7 @@ void Launcher::DataFilesPage::saveSettings(const QString& profile)
         if (mGameSettings.isUserSetting(archive))
             archiveNames.push_back(archive.originalRepresentation);
     }
-    mLauncherSettings.setContentList(profileName, dirNames, archiveNames, fileNames);
+    mLauncherSettings.setContentList(profileName, dirNames, archiveNames, fileNames, mSelector->userFilesInOrder());
     mGameSettings.setContentList(dirList, selectedArchivePaths(), fileNames);
 
     QString language(mSelector->languageBox()->currentData().toString());
@@ -752,7 +756,8 @@ void Launcher::DataFilesPage::on_cloneProfileAction_triggered()
         if (mGameSettings.isUserSetting(archive))
             archiveNames.push_back(archive.originalRepresentation);
     }
-    mLauncherSettings.setContentList(profile, dirNames, archiveNames, selectedFilePaths());
+    mLauncherSettings.setContentList(
+        profile, dirNames, archiveNames, selectedFilePaths(), mSelector->userFilesInOrder());
     addProfile(profile, true);
 }
 
@@ -1177,4 +1182,79 @@ void Launcher::DataFilesPage::navMeshToolFinished(int exitCode, QProcess::ExitSt
     }
     ui.cancelNavMeshButton->setEnabled(false);
     ui.navMeshProgressBar->setEnabled(false);
+}
+
+bool Launcher::DataFilesPage::eventFilter(QObject* obj, QEvent* event)
+{
+    if (obj != ui.directoryListWidget)
+        return QWidget::eventFilter(obj, event);
+
+    if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove)
+    {
+        auto* dragDropEvent = static_cast<QDropEvent*>(event);
+        const QMimeData* mimeData = dragDropEvent->mimeData();
+
+        if (mimeData->hasUrls())
+        {
+            for (const QUrl& url : mimeData->urls())
+            {
+                if (!url.isLocalFile())
+                    continue;
+
+                QFileInfo fileInfo(url.toLocalFile());
+
+                if (fileInfo.isDir())
+                {
+                    dragDropEvent->acceptProposedAction();
+                    return true;
+                }
+            }
+        }
+    }
+    else if (event->type() == QEvent::Drop)
+    {
+        QDropEvent* dropEvent = static_cast<QDropEvent*>(event);
+        const QMimeData* mimeData = dropEvent->mimeData();
+
+        if (mimeData->hasUrls())
+        {
+            QStringList droppedDirs;
+
+            for (const QUrl& url : mimeData->urls())
+            {
+                if (!url.isLocalFile())
+                    continue;
+
+                QFileInfo fileInfo(url.toLocalFile());
+
+                if (fileInfo.isDir())
+                {
+                    QString canonicalPath = fileInfo.canonicalFilePath();
+
+                    if (ui.directoryListWidget->findItems(canonicalPath, Qt::MatchFixedString).isEmpty())
+                    {
+                        droppedDirs.append(canonicalPath);
+                    }
+                }
+            }
+
+            if (!droppedDirs.isEmpty())
+            {
+                for (const QString& dirPath : droppedDirs)
+                {
+                    ui.directoryListWidget->addItem(dirPath);
+                    auto* item = ui.directoryListWidget->item(ui.directoryListWidget->count() - 1);
+                    item->setData(Qt::UserRole, QVariant::fromValue(Config::SettingValue{ dirPath }));
+                    mNewDataDirs.push_back(dirPath);
+                }
+
+                refreshDataFilesView();
+            }
+
+            dropEvent->acceptProposedAction();
+            return true;
+        }
+    }
+
+    return QWidget::eventFilter(obj, event);
 }

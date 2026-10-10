@@ -332,6 +332,7 @@ namespace DetourNavigator
                                   << " changeType=" << it->mChangeType;
 
                 mWaiting.push(it);
+                ++mPostedCount;
             }
         }
 
@@ -443,6 +444,7 @@ namespace DetourNavigator
             result.mDb = mDbWorker->getStats();
         result.mCache = mNavMeshTilesCache.getStats();
         result.mDbGetTileHits = mDbGetTileHits.load(std::memory_order_relaxed);
+        result.mPosted = mPostedCount.load(std::memory_order_relaxed);
         return result;
     }
 
@@ -531,6 +533,16 @@ namespace DetourNavigator
         return JobStatus::Done;
     }
 
+    JobStatus AsyncNavMeshUpdater::markAsEmpty(const Job& job, GuardedNavMeshCacheItem& navMeshCacheItem)
+    {
+        {
+            const std::scoped_lock lock(mMutex);
+            mPresentTiles.erase(getAgentAndTile(job));
+        }
+        navMeshCacheItem.lock()->markAsEmpty(job.mChangedTile);
+        return JobStatus::Done;
+    }
+
     JobStatus AsyncNavMeshUpdater::processInitialJob(Job& job, GuardedNavMeshCacheItem& navMeshCacheItem)
     {
         Log(Debug::Debug) << "Processing initial job " << job.mId;
@@ -540,15 +552,13 @@ namespace DetourNavigator
         if (recastMesh == nullptr)
         {
             Log(Debug::Debug) << "Null recast mesh for job " << job.mId;
-            navMeshCacheItem.lock()->markAsEmpty(job.mChangedTile);
-            return JobStatus::Done;
+            return markAsEmpty(job, navMeshCacheItem);
         }
 
         if (isEmpty(*recastMesh))
         {
             Log(Debug::Debug) << "Empty bounds for job " << job.mId;
-            navMeshCacheItem.lock()->markAsEmpty(job.mChangedTile);
-            return JobStatus::Done;
+            return markAsEmpty(job, navMeshCacheItem);
         }
 
         try
@@ -583,8 +593,7 @@ namespace DetourNavigator
             if (preparedNavMeshData == nullptr)
             {
                 Log(Debug::Debug) << "Null navmesh data for job " << job.mId;
-                navMeshCacheItem.lock()->markAsEmpty(job.mChangedTile);
-                return JobStatus::Done;
+                return markAsEmpty(job, navMeshCacheItem);
             }
 
             if (job.mChangeType == ChangeType::update)
@@ -637,8 +646,7 @@ namespace DetourNavigator
         if (preparedNavMeshData == nullptr)
         {
             Log(Debug::Debug) << "Null navmesh data for job " << job.mId;
-            navMeshCacheItem.lock()->markAsEmpty(job.mChangedTile);
-            return JobStatus::Done;
+            return markAsEmpty(job, navMeshCacheItem);
         }
 
         auto cachedNavMeshData = mNavMeshTilesCache.set(

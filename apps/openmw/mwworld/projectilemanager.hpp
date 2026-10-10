@@ -3,7 +3,16 @@
 
 #include <string>
 
+#ifdef OPENMW_CTR_NATIVE
+#include <osg/Quat>
+#include <osg/Vec3f>
+#include <osg/Vec4>
+#include <memory>
+#include <set>
+#include <vector>
+#else
 #include <osg/PositionAttitudeTransform>
+#endif
 #include <osg/ref_ptr>
 
 #include <components/esm3/effectlist.hpp>
@@ -38,6 +47,7 @@ namespace MWRender
 {
     class EffectAnimationTime;
     class RenderingManager;
+    class ProjectileVisual;
 }
 
 namespace MWWorld
@@ -54,7 +64,7 @@ namespace MWWorld
             ESM::RefNum item);
 
         void launchProjectile(const MWWorld::Ptr& actor, const MWWorld::ConstPtr& projectile, const osg::Vec3f& pos,
-            const osg::Quat& orient, const MWWorld::Ptr& bow, float speed, float attackStrength);
+            const osg::Quat& orient, const MWWorld::Ptr& bow, float speed, float attackStrength, float attackWindUp);
 
         void updateCasters();
 
@@ -71,7 +81,11 @@ namespace MWWorld
         void saveLoaded(const ESM::ESMReader& reader);
 
     private:
+#ifdef OPENMW_CTR_NATIVE
+        osg::Group* mParent;
+#else
         osg::ref_ptr<osg::Group> mParent;
+#endif
         Resource::ResourceSystem* mResourceSystem;
         MWRender::RenderingManager* mRendering;
         MWPhysics::PhysicsSystem* mPhysics;
@@ -79,8 +93,12 @@ namespace MWWorld
 
         struct State
         {
+#ifdef OPENMW_CTR_NATIVE
+            std::shared_ptr<MWRender::ProjectileVisual> mNode;
+#else
             osg::ref_ptr<osg::PositionAttitudeTransform> mNode;
             std::shared_ptr<MWRender::EffectAnimationTime> mEffectAnimationTime;
+#endif
 
             ESM::RefNum mCaster;
             MWWorld::Ptr mCasterHandle;
@@ -121,6 +139,7 @@ namespace MWWorld
 
             osg::Vec3f mVelocity;
             float mAttackStrength;
+            float mAttackWindUp;
         };
 
         std::vector<MagicBoltState> mMagicBolts;
@@ -134,7 +153,7 @@ namespace MWWorld
         void moveMagicBolts(float dt);
 
         void createModel(State& state, VFS::Path::NormalizedView model, const osg::Vec3f& pos, const osg::Quat& orient,
-            bool rotate, bool createLight, osg::Vec4 lightDiffuseColor, const std::string& texture = "");
+            bool rotate, bool createLight, osg::Vec4 lightDiffuseColor, VFS::Path::NormalizedView texture = {});
         void update(State& state, float duration);
 
         void operator=(const ProjectileManager&);

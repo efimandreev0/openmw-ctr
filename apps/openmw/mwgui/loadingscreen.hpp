@@ -33,7 +33,11 @@ namespace MWGui
     class LoadingScreen : public WindowBase, public Loading::Listener
     {
     public:
+#ifdef OPENMW_CTR_NATIVE
+        explicit LoadingScreen(Resource::ResourceSystem* resourceSystem);
+#else
         LoadingScreen(Resource::ResourceSystem* resourceSystem, osgViewer::Viewer* viewer);
+#endif
         virtual ~LoadingScreen();
 
         /// Overridden from Loading::Listener, see the Loading::Listener documentation for usage details
@@ -55,7 +59,9 @@ namespace MWGui
         void setupCopyFramebufferToTextureCallback();
 
         Resource::ResourceSystem* mResourceSystem;
+#ifndef OPENMW_CTR_NATIVE
         osg::ref_ptr<osgViewer::Viewer> mViewer;
+#endif
 
         double mTargetFrameRate;
 
@@ -82,9 +88,14 @@ namespace MWGui
         BackgroundImage* mSceneImage;
 
         std::vector<std::string> mSplashScreens;
+#ifdef OPENMW_CTR_NATIVE
+        std::string mShownSplash;
+#endif
 
+#ifndef OPENMW_CTR_NATIVE
         osg::ref_ptr<osg::Texture2D> mTexture;
         osg::ref_ptr<CopyFramebufferToTextureCallback> mCopyFramebufferToTextureCallback;
+#endif
         std::unique_ptr<MyGUI::ITexture> mGuiTexture;
 
         void changeWallpaper();

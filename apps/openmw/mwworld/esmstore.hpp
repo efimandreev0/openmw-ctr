@@ -3,10 +3,12 @@
 
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <set>
 #include <stdexcept>
 #include <tuple>
 #include <unordered_map>
+#include <vector>
 
 #include <components/esm/luascripts.hpp>
 #include <components/esm/refid.hpp>
@@ -70,6 +72,7 @@ namespace ESM
     struct StartScript;
     struct Static;
     struct Weapon;
+    struct WeaponType;
 }
 
 namespace ESM4
@@ -132,8 +135,8 @@ namespace MWWorld
             Store<ESM::CreatureLevList>, Store<ESM::ItemLevList>, Store<ESM::Light>, Store<ESM::Lockpick>,
             Store<ESM::Miscellaneous>, Store<ESM::NPC>, Store<ESM::Probe>, Store<ESM::Race>, Store<ESM::Region>,
             Store<ESM::Repair>, Store<ESM::SoundGenerator>, Store<ESM::Sound>, Store<ESM::Spell>,
-            Store<ESM::StartScript>, Store<ESM::Static>, Store<ESM::Weapon>, Store<ESM::GameSetting>,
-            Store<ESM::Script>,
+            Store<ESM::StartScript>, Store<ESM::Static>, Store<ESM::Weapon>, Store<ESM::WeaponType>,
+            Store<ESM::GameSetting>, Store<ESM::Script>,
 
             // Lists that need special rules
             Store<ESM::Cell>, Store<ESM::Land>, Store<ESM::LandTexture>, Store<ESM::Pathgrid>,
@@ -163,7 +166,16 @@ namespace MWWorld
 
         std::unique_ptr<ESMStoreImp> mStoreImp;
 
-        std::unordered_map<ESM::RefId, int> mRefCount;
+        struct RefInfo
+        {
+            int mCount = 0;
+            std::vector<const ESM::Cell*> mCells;
+        };
+
+        std::unordered_map<ESM::RefId, RefInfo> mRefInfo;
+#ifdef __3DS__
+        void pruneRefCells();
+#endif
 
         std::vector<StoreBase*> mStores;
         std::vector<DynamicStore*> mDynamicStores;
@@ -172,19 +184,12 @@ namespace MWWorld
 
         mutable std::unordered_map<ESM::RefId, std::weak_ptr<MWMechanics::SpellList>> mSpellListCache;
 
-        template <class T>
-        Store<T>& getWritable()
-        {
-            return static_cast<Store<T>&>(*mStores[getTypeIndex<T>()]);
-        }
-
         /// Validate entries in store after setup
         void validate();
 
         void countAllCellRefsAndMarkKeys(ESM::ReadersCache& readers);
 
 #ifdef __3DS__
-        // SD cache for mRefCount + key-item ids (see countAllCellRefsAndMarkKeys):
         // recomputing them re-reads every ESM a second time (~25s per boot).
         bool loadRefCountCache();
         void saveRefCountCache(const std::set<ESM::RefId>& keyIDs) const;
@@ -236,6 +241,12 @@ namespace MWWorld
         const Store<T>& get() const
         {
             return static_cast<const Store<T>&>(*mStores[getTypeIndex<T>()]);
+        }
+
+        template <class T>
+        Store<T>& getWritable()
+        {
+            return static_cast<Store<T>&>(*mStores[getTypeIndex<T>()]);
         }
 
         /// Insert a custom record (i.e. with a generated ID that will not clash will pre-existing records)
@@ -307,9 +318,11 @@ namespace MWWorld
         /// @return The number of instances defined in the base files. Excludes changes from the save file.
         int getRefCount(const ESM::RefId& id) const;
 
+        std::span<const ESM::Cell* const> getRefCells(const ESM::RefId& id) const;
+
         /// Actors with the same ID share spells, abilities, etc.
         /// @return The shared spell list to use for this actor and whether or not it has already been initialized.
-        std::pair<std::shared_ptr<MWMechanics::SpellList>, bool> getSpellList(const ESM::RefId& id) const;
+        std::pair<std::shared_ptr<MWMechanics::SpellList>, bool> getSpellList(ESM::RefId id, bool autoCalc) const;
     };
     template <>
     const ESM::Cell* ESMStore::insert<ESM::Cell>(const ESM::Cell& cell);
@@ -317,14 +330,10 @@ namespace MWWorld
     template <>
     const ESM::NPC* ESMStore::insert<ESM::NPC>(const ESM::NPC& npc);
 
-    template <class T, class = std::void_t<>>
-    struct HasRecordId : std::false_type
-    {
-    };
-
     template <class T>
-    struct HasRecordId<T, std::void_t<decltype(T::sRecordId)>> : std::true_type
+    concept HasRecordId = requires
     {
+        T::sRecordId;
     };
 }
 

@@ -11,6 +11,8 @@
 
 namespace MWSound
 {
+    struct PrebuiltAdpcm;
+
     /* .nsa IMA4-ADPCM audio cache for the 3DS port.
      *
      * scripts/ctr/preprocess_audio_nsa.py converts every VFS audio file
@@ -77,8 +79,8 @@ namespace MWSound
         size_t getSampleOffset() override { return mFramesDone; }
     };
 
-    /* getDecoder() implementation for the 3DS: serve .nsa when baked,
-     * otherwise fall through to the stock FFmpeg decoder. */
+    /* getDecoder() implementation for the 3DS: serve sounds.ctp (DSP-ADPCM
+     * from apps/ctrprep) or .nsa when baked, otherwise decode the file. */
     class CtrAudioDecoder final : public SoundDecoder
     {
         std::shared_ptr<SoundDecoder> mActive;
@@ -97,6 +99,10 @@ namespace MWSound
         }
 
         std::string getName() override { return mActive ? mActive->getName() : std::string(); }
+
+#ifdef OPENMW_CTR_NATIVE
+        std::shared_ptr<const PrebuiltAdpcm> getPrebuilt() const;
+#endif
         void getInfo(int* samplerate, ChannelConfig* chans, SampleType* type) override
         {
             mActive->getInfo(samplerate, chans, type);

@@ -57,21 +57,10 @@ namespace MWGui
 
     MWWorld::Ptr ItemModel::moveItem(const ItemStack& item, size_t count, ItemModel* otherModel, bool allowAutoEquip)
     {
-        MWWorld::Ptr ret = MWWorld::Ptr();
-        if (static_cast<size_t>(item.mBase.getCellRef().getCount()) <= count)
-        {
-            // We are moving the full stack
-            ret = otherModel->addItem(item, count, allowAutoEquip);
-            removeItem(item, count);
-        }
-        else
-        {
-            // We are moving only part of the stack, so create a copy in the other model
-            // and then remove count from this model.
-            ret = otherModel->copyItem(item, count, allowAutoEquip);
-            removeItem(item, count);
-        }
-        return ret;
+        removeItem(item, count);
+        if (item.mBase.getCellRef().getCount() == 0)
+            return otherModel->addItem(item, count, allowAutoEquip);
+        return otherModel->copyItem(item, count, allowAutoEquip);
     }
 
     bool ItemModel::allowedToUseItems() const

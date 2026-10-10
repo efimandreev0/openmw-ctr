@@ -1,7 +1,11 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/globalmap.hpp"
+#else
 #ifndef GAME_RENDER_GLOBALMAP_H
 #define GAME_RENDER_GLOBALMAP_H
 
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -33,7 +37,7 @@ namespace MWRender
     class GlobalMap
     {
     public:
-        GlobalMap(osg::Group* root, SceneUtil::WorkQueue* workQueue);
+        GlobalMap(osg::Group* root, const std::shared_ptr<SceneUtil::WorkQueue>& workQueue);
         ~GlobalMap();
 
         void render();
@@ -121,9 +125,9 @@ namespace MWRender
         // CPU copy of overlay
         osg::ref_ptr<osg::Image> mOverlayImage;
 
-        osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
-        osg::ref_ptr<CreateMapWorkItem> mWorkItem;
-        osg::ref_ptr<WritePng> mWritePng;
+        std::shared_ptr<SceneUtil::WorkQueue> mWorkQueue;
+        std::shared_ptr<CreateMapWorkItem> mWorkItem;
+        std::shared_ptr<WritePng> mWritePng;
 
         int mWidth;
         int mHeight;
@@ -134,3 +138,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

@@ -210,6 +210,24 @@ namespace Bgsm
             stream.read(mLightingMap);
             stream.read(mGlowMap);
         }
+        if (mVersion >= 21)
+        {
+            stream.read(mGlassRoughnessScratchMap);
+            stream.read(mGlassDirtOverlayMap);
+            stream.read(mGlassEnabled);
+
+            if (mGlassEnabled)
+            {
+                stream.read(mGlassFresnelColor);
+
+                stream.read(mGlassBlurScaleBase);
+
+                if (mVersion >= 22)
+                    stream.read(mGlassBlurScaleFactor);
+
+                stream.read(mGlassRefractionScaleBase);
+            }
+        }
         if (mVersion >= 10)
         {
             stream.read(mEnvMapEnabled);

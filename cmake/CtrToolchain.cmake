@@ -34,10 +34,14 @@ set(CMAKE_FIND_PACKAGE_PREFER_CONFIG FALSE)
 # byte-identical to avoid a spurious full rebuild.
 set(_CTR_ARCH "-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft")
 set(_CTR_COMMON "-mword-relocations -ffunction-sections -D__3DS__")
-set(_CTR_INT32_FIX "-U__INT32_TYPE__ -D__INT32_TYPE__=int -U__UINT32_TYPE__")
+# A forced-include header redefines both the signed AND unsigned 32-bit type
+# macros (a bare -U__UINT32_TYPE__ breaks GCC 16's libstdc++ atomic_wait.h,
+# which uses the macro directly).
+get_filename_component(_CTR_INT32_FIX_HEADER "${CMAKE_CURRENT_LIST_DIR}/../components/ctr/ctr_int32_fix.h" ABSOLUTE)
+set(_CTR_INT32_FIX "-include ${_CTR_INT32_FIX_HEADER}")
 macro(_ctr_ensure_flags lang)
     string(FIND "${CMAKE_${lang}_FLAGS}" "armv6k" _ctr_has_arch)
-    string(FIND "${CMAKE_${lang}_FLAGS}" "__INT32_TYPE__" _ctr_has_fix)
+    string(FIND "${CMAKE_${lang}_FLAGS}" "ctr_int32_fix.h" _ctr_has_fix)
     if(_ctr_has_arch EQUAL -1 OR _ctr_has_fix EQUAL -1)
         set(CMAKE_${lang}_FLAGS "${_CTR_ARCH} ${_CTR_COMMON} ${_CTR_INT32_FIX}" CACHE STRING "" FORCE)
     endif()

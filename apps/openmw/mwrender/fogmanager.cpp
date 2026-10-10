@@ -6,7 +6,11 @@
 #include <components/esm3/loadcell.hpp>
 #include <components/esm4/loadcell.hpp>
 #include <components/fallback/fallback.hpp>
+#ifdef OPENMW_CTR_NATIVE
+#include <components/sceneutil/colourutil.hpp>
+#else
 #include <components/sceneutil/util.hpp>
+#endif
 #include <components/settings/values.hpp>
 
 #include "apps/openmw/mwworld/cell.hpp"

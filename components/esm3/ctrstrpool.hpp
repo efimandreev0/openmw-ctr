@@ -54,7 +54,9 @@ namespace ESM
         mutable std::mutex mMutex;
         mutable FILE* mFile = nullptr;
         uint32_t mCursor = 0;
+        uint32_t mReuseSize = 0;
         uint64_t mFingerprint = 0;
+        std::string mPath;
     };
 }
 

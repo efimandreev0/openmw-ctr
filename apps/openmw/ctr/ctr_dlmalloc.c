@@ -34,20 +34,120 @@
 #define MORECORE_CONTIGUOUS 1
 #define NO_MALLOC_STATS 1
 #define DEFAULT_GRANULARITY (128U * 1024U)
+/* Each in-use chunk ends with a check word (stored where the next chunk's
+ * prev_foot is otherwise unused, so it costs no memory). Writing past the end
+ * of a block clobbers it, and freeing that block reports the overrun. */
+#define FOOTERS 1
+static void ctr_heap_error(const char* what, void* chunk, int fatal);
+#define USAGE_ERROR_ACTION(m, p) ctr_heap_error("bad free or overrun", (void*)(p), 0)
+#define CORRUPTION_ERROR_ACTION(m) ctr_heap_error("corrupted free lists", NULL, 1)
 /* newlib provides these headers fine; dlmalloc autodetects the rest */
 
 #include "../../../extern/dlmalloc/dlmalloc.c"
 
+/* ---- diagnostics that work while the heap is wedged ----
+ * The log descriptor is opened at boot: opening a file allocates, and a
+ * report from inside malloc (which holds the heap lock) must not. The caller
+ * markers say which call is inside malloc/free, for the hang watchdog. */
+
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+extern const char* volatile g_ctrBeacon;
+
+static int s_diagFd = -1;
+void* volatile g_ctrMallocCaller = NULL;
+void* volatile g_ctrFreeCaller = NULL;
+
+void ctr_diag_open(void)
+{
+    if (s_diagFd < 0)
+        /* Its own file: this descriptor's view of the size goes stale while boot.log grows through others. */
+        s_diagFd = open("sdmc:/3ds/openmw/diag.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+}
+
+void ctr_diag_write(const char* text)
+{
+    if (s_diagFd < 0)
+        return;
+    size_t size = 0;
+    while (text[size] != '\0')
+        ++size;
+    write(s_diagFd, text, size);
+}
+
+static void ctr_heap_error(const char* what, void* chunk, int fatal)
+{
+    static int reports = 0;
+    if (reports < 32)
+    {
+        ++reports;
+        char line[200];
+        snprintf(line, sizeof(line), "[HEAP] %s chunk=%p free_ra=%p malloc_ra=%p beacon=%s\n", what, chunk,
+            g_ctrFreeCaller, g_ctrMallocCaller, (const char*)g_ctrBeacon);
+        ctr_diag_write(line);
+    }
+    if (fatal)
+        abort();
+}
+
+/* ---- bad free guard ----
+ * A pointer outside the malloc heap or off the 8-byte chunk alignment can't
+ * have come from malloc: freeing it data-aborts on hardware (dlfree reads the
+ * chunk header in front of it). Log the caller (addr2line-able against the
+ * matching openmw.elf) and leak instead. */
+
+#include <stdint.h>
+#include <stdio.h>
+
+extern unsigned int __ctru_heap;
+extern unsigned int __ctru_heap_size;
+extern const char* volatile g_ctrBeacon;
+
+void ctr_checked_free(void* ptr, void* caller)
+{
+    const uintptr_t address = (uintptr_t)ptr;
+    if (ptr == NULL)
+        return;
+    if ((address & 7) == 0 && address >= __ctru_heap + 8 && address < __ctru_heap + __ctru_heap_size)
+    {
+        g_ctrFreeCaller = caller;
+        dlfree(ptr);
+        g_ctrFreeCaller = NULL;
+        return;
+    }
+    static int reports = 0;
+    if (reports < 32)
+    {
+        ++reports;
+        FILE* f = fopen("sdmc:/3ds/openmw/boot.log", "ab");
+        if (f)
+        {
+            fprintf(f, "[BAD_FREE] ptr=%p ra=%p beacon=%s\n", ptr, caller, (const char*)g_ctrBeacon);
+            fclose(f);
+        }
+    }
+}
+
 /* ---- newlib API overrides ---- */
+
+void* ctr_malloc_from(size_t size, void* caller)
+{
+    g_ctrMallocCaller = caller;
+    void* ptr = dlmalloc(size);
+    g_ctrMallocCaller = NULL;
+    return ptr;
+}
 
 void* malloc(size_t size)
 {
-    return dlmalloc(size);
+    return ctr_malloc_from(size, __builtin_return_address(0));
 }
 
 void free(void* ptr)
 {
-    dlfree(ptr);
+    ctr_checked_free(ptr, __builtin_return_address(0));
 }
 
 void* calloc(size_t nmemb, size_t size)
@@ -107,13 +207,13 @@ int mallopt(int param, int value)
 void* _malloc_r(struct _reent* r, size_t size)
 {
     (void)r;
-    return dlmalloc(size);
+    return ctr_malloc_from(size, __builtin_return_address(0));
 }
 
 void _free_r(struct _reent* r, void* ptr)
 {
     (void)r;
-    dlfree(ptr);
+    ctr_checked_free(ptr, __builtin_return_address(0));
 }
 
 void* _calloc_r(struct _reent* r, size_t nmemb, size_t size)

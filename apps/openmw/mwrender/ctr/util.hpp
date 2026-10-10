@@ -1,0 +1,5 @@
+#ifndef OPENMW_MWRENDER_CTR_UTIL_H
+#define OPENMW_MWRENDER_CTR_UTIL_H
+
+
+#endif

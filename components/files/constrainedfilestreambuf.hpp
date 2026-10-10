@@ -21,8 +21,12 @@ namespace Files
         pos_type seekpos(pos_type pos, std::ios_base::openmode mode) final;
 
     private:
+        pos_type seekTo(std::size_t position);
+
         std::size_t mOrigin;
         std::size_t mSize;
+        std::size_t mFilePos = 0;
+        std::size_t mBufferPos = 0;
         Platform::File::ScopedHandle mFile;
 #if defined(__vita__) || defined(__3DS__)
         char mBuffer[32768]{ 0 };

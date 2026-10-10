@@ -1,6 +1,8 @@
 #include "mapwindow.hpp"
 
+#ifndef OPENMW_CTR_NATIVE
 #include <osg/Texture2D>
+#endif
 
 #include <MyGUI_Button.h>
 #include <MyGUI_FactoryManager.h>
@@ -196,7 +198,7 @@ namespace MWGui
 
     MWGui::LocalMapBase::MapEntry& LocalMapBase::addMapEntry()
     {
-        const int mapWidgetSize = Settings::map().mLocalMapWidgetSize;
+        const int mapWidgetSize = static_cast<int>(getWidgetSize());
         MyGUI::ImageBox* map = mLocalMap->createWidget<MyGUI::ImageBox>(
             "ImageBox", MyGUI::IntCoord(0, 0, mapWidgetSize, mapWidgetSize), MyGUI::Align::Top | MyGUI::Align::Left);
         map->setDepth(Local_MapLayer);
@@ -218,7 +220,7 @@ namespace MWGui
         mCompass = compass;
         mGrid = createRect({ 0, 0 }, cellDistance);
 
-        const int mapWidgetSize = Settings::map().mLocalMapWidgetSize;
+        const int mapWidgetSize = static_cast<int>(getWidgetSize());
         setCanvasSize(mLocalMap, mGrid, mapWidgetSize);
 
         mCompass->setDepth(Local_CompassLayer);
@@ -624,12 +626,16 @@ namespace MWGui
                     requestMapRender(&MWBase::Environment::get().getWorldModel()->getExterior(
                         ESM::ExteriorCellLocation(entry.mCellX, entry.mCellY, ESM::Cell::sDefaultWorldspaceId)));
 
-                osg::ref_ptr<osg::Texture2D> texture = mLocalMapRender->getMapTexture(entry.mCellX, entry.mCellY);
+                auto texture = mLocalMapRender->getMapTexture(entry.mCellX, entry.mCellY);
                 if (texture)
                 {
                     entry.mMapTexture = std::make_unique<MyGUIPlatform::OSGTexture>(texture);
                     entry.mMapWidget->setRenderItemTexture(entry.mMapTexture.get());
+#ifndef OPENMW_CTR_NATIVE
+                    entry.mMapWidget->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+#else
                     entry.mMapWidget->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+#endif
                     needRedraw = true;
                 }
                 else
@@ -637,16 +643,20 @@ namespace MWGui
             }
             if (!entry.mFogTexture && mFogOfWarToggled && mFogOfWarEnabled)
             {
-                osg::ref_ptr<osg::Texture2D> tex = mLocalMapRender->getFogOfWarTexture(entry.mCellX, entry.mCellY);
+                auto tex = mLocalMapRender->getFogOfWarTexture(entry.mCellX, entry.mCellY);
                 if (tex)
                 {
                     entry.mFogTexture = std::make_unique<MyGUIPlatform::OSGTexture>(tex);
                     entry.mFogWidget->setRenderItemTexture(entry.mFogTexture.get());
-                    entry.mFogWidget->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+                    entry.mFogWidget->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
                 }
                 else
                 {
+#ifdef OPENMW_CTR_NATIVE
+                    entry.mFogWidget->setImageTexture({});
+#else
                     entry.mFogWidget->setImageTexture("black");
+#endif
                     entry.mFogTexture = std::make_unique<MyGUIPlatform::OSGTexture>(std::string(), nullptr);
                 }
                 needRedraw = true;
@@ -784,7 +794,7 @@ namespace MWGui
 
     // ------------------------------------------------------------------------------------------
     MapWindow::MapWindow(CustomMarkerCollection& customMarkers, DragAndDrop* drag, MWRender::LocalMap* localMapRender,
-        SceneUtil::WorkQueue* workQueue)
+        const std::shared_ptr<SceneUtil::WorkQueue>& workQueue)
 #ifdef USE_OPENXR
         : WindowPinnableBase("openmw_map_window_vr.layout")
 #else
@@ -961,16 +971,13 @@ namespace MWGui
             if (zoomIn && mGlobalMapZoom > 4.f)
             {
                 mGlobalMapZoom = currentGlobalZoom;
-                mLocalMapZoom = currentMinLocalMapZoom;
-                onWorldButtonClicked(nullptr);
-                updateLocalMap();
-                return; // the zoom in is too big
+                return;
             }
 
             if (zoomOut && mGlobalMapZoom < currentMinGlobalMapZoom)
             {
                 mGlobalMapZoom = currentGlobalZoom;
-                return; // the zoom out is too big, we have reach the borders of the widget
+                return;
             }
         }
         else
@@ -981,19 +988,13 @@ namespace MWGui
             if (zoomIn && mLocalMapZoom > 4.0f)
             {
                 mLocalMapZoom = currentLocalZoom;
-                return; // the zoom in is too big
+                return;
             }
 
             if (zoomOut && mLocalMapZoom < currentMinLocalMapZoom)
             {
                 mLocalMapZoom = currentLocalZoom;
-
-                float zoomRatio = 4.f / mGlobalMapZoom;
-                mGlobalMapZoom = 4.f;
-                onWorldButtonClicked(nullptr);
-
-                zoomOnCursor(zoomRatio);
-                return; // the zoom out is too big, we switch to the global map
+                return;
             }
 
             if (zoomOut)
@@ -1334,7 +1335,7 @@ namespace MWGui
     {
         if (!mGlobalMapTexture.get())
         {
-            osg::ref_ptr<osg::Texture2D> baseTex = mGlobalMapRender->getBaseTexture();
+            auto baseTex = mGlobalMapRender->getBaseTexture();
             if (!baseTex)
             {
 #if defined(__vita__) || defined(__3DS__)
@@ -1349,14 +1350,22 @@ namespace MWGui
 
             mGlobalMapTexture = std::make_unique<MyGUIPlatform::OSGTexture>(baseTex);
             mGlobalMapImage->setRenderItemTexture(mGlobalMapTexture.get());
+#ifndef OPENMW_CTR_NATIVE
+            mGlobalMapImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+#else
             mGlobalMapImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+#endif
 
-            osg::ref_ptr<osg::Texture2D> overlayTex = mGlobalMapRender->getOverlayTexture();
+            auto overlayTex = mGlobalMapRender->getOverlayTexture();
             if (overlayTex)
             {
                 mGlobalMapOverlayTexture = std::make_unique<MyGUIPlatform::OSGTexture>(overlayTex);
                 mGlobalMapOverlay->setRenderItemTexture(mGlobalMapOverlayTexture.get());
+#ifdef OPENMW_CTR_NATIVE
                 mGlobalMapOverlay->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+#else
+                mGlobalMapOverlay->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+#endif
             }
 
             // Redraw children in proper order

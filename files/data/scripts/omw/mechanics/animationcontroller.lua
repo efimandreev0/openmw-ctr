@@ -7,6 +7,16 @@ local function onPlayBlendedAnimation(groupname, options)
     auxUtil.callEventHandlers(playBlendedHandlers, groupname, options)
 end
 
+local animationEndedHandlers = {}
+local function onAnimationEnded(groupname, startKey, stopKey, time, completion)
+    auxUtil.callEventHandlers(animationEndedHandlers, groupname, {
+        startKey = startKey,
+        stopKey = stopKey,
+        time = time,
+        completion = completion,
+    })
+end
+
 local function playBlendedAnimation(groupname, options)
     onPlayBlendedAnimation(groupname, options)
     if options.skip then
@@ -38,6 +48,7 @@ end
 return {
     engineHandlers = { 
         _onPlayAnimation = playBlendedAnimation,
+        _onAnimationEnded = onAnimationEnded,
         _onAnimationTextKey = onAnimationTextKey,
         onUpdate = onUpdate,
     },
@@ -49,7 +60,6 @@ return {
     -- @context local
     -- @usage local anim = require('openmw.animation')
     -- local I = require('openmw.interfaces')
-    --
     -- -- play spellcast animation 
     -- I.AnimationController.playBlendedAnimation('spellcast', { startkey = 'self start', stopkey = 'self stop', priority = {
     --      [anim.BONE_GROUP.RightArm] = anim.PRIORITY.Weapon,
@@ -57,7 +67,6 @@ return {
     --      [anim.BONE_GROUP.Torso] = anim.PRIORITY.Weapon,
     --      [anim.BONE_GROUP.LowerBody] = anim.PRIORITY.WeaponLowerBody
     --      } })
-    -- 
     -- @usage -- react to the spellcast release textkey
     -- I.AnimationController.addTextKeyHandler('spellcast', function(groupname, key)
     --     -- Note, Lua is 1-indexed so have to subtract 1 less than the length of 'release'
@@ -65,14 +74,12 @@ return {
     --         print('Abra kadabra!')
     --     end
     -- end)
-    --
     -- @usage -- Add a text key handler that will react to all keys
     -- I.AnimationController.addTextKeyHandler('', function(groupname, key)
     --     if key.sub(key, #key - 2) == 'hit' and not key.sub(key, #key - 7) == ' min hit' then
     --         print('Hit!')
     --     end
     -- end)
-    -- 
     -- @usage -- Make a handler that changes player attack speed based on current fatigue
     -- I.AnimationController.addPlayBlendedAnimationHandler(function (groupname, options)
     --     local stop = options.stopkey
@@ -84,12 +91,11 @@ return {
     --         options.speed = speed
     --     end
     -- end)
-    -- 
     
     interface = {
         --- Interface version
         -- @field [parent=#AnimationController] #number version
-        version = 0,
+        version = 1,
         
         --- AnimationController Package
         -- @type Package
@@ -104,9 +110,12 @@ return {
         -- If `handler(groupname, options)` returns false, other handlers for
         -- the call will be skipped.
         -- @function [parent=#AnimationController] addPlayBlendedAnimationHandler
-        -- @param #function handler The handler.
         addPlayBlendedAnimationHandler = function(handler)
             playBlendedHandlers[#playBlendedHandlers + 1] = handler
+        end,
+
+        addAnimationEndedHandler = function(handler)
+            animationEndedHandlers[#animationEndedHandlers + 1] = handler
         end,
 
         --- Add a new text key handler for this actor
@@ -116,7 +125,6 @@ return {
         -- the call will be skipped.
         -- @function [parent=#AnimationController] addTextKeyHandler
         -- @param #string groupname Name of the animation group to listen to keys for. If it is an empty string or nil, all keys will be received
-        -- @param #function handler The handler.
         addTextKeyHandler = function(groupname, handler)
             if not groupname then
                 groupname = ""

@@ -10,7 +10,9 @@
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_Window.h>
 
+#ifndef OPENMW_CTR_NATIVE
 #include <osg/Texture2D>
+#endif
 
 #include <components/misc/strings/algorithm.hpp>
 
@@ -129,7 +131,7 @@ namespace MWGui
         mAvatarImage->eventMouseButtonClick += MyGUI::newDelegate(this, &InventoryWindow::onAvatarClicked);
         if (mPreviewTexture)
             mAvatarImage->setRenderItemTexture(mPreviewTexture.get());
-        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
 
         getWidget(mItemView, "ItemView");
         mItemView->eventItemClicked += MyGUI::newDelegate(this, &InventoryWindow::onItemSelected);
@@ -570,9 +572,9 @@ namespace MWGui
             return;
         const MyGUI::IntSize viewport = getPreviewViewportSize();
         mPreview->setViewport(viewport.width, viewport.height);
-        mAvatarImage->getSubWidgetMain()->_setUVSet(
-            MyGUI::FloatRect(0.f, 0.f, viewport.width / float(mPreview->getTextureWidth()),
-                viewport.height / float(mPreview->getTextureHeight())));
+        const float top = viewport.height / static_cast<float>(mPreview->getTextureHeight());
+        const float right = viewport.width / static_cast<float>(mPreview->getTextureWidth());
+        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, top, right, 0.f));
     }
 
     void InventoryWindow::onNameFilterChanged(MyGUI::EditBox* sender)
@@ -668,6 +670,15 @@ namespace MWGui
 
         std::unique_ptr<MWWorld::Action> action = ptr.getClass().use(ptr, force);
 
+        if (type == ESM::Ingredient::sRecordId && action->isNullAction())
+        {
+            if (isFromDragAndDrop)
+                mDragAndDrop->update();
+            return;
+        }
+
+        const bool isConsumable = type == ESM::Potion::sRecordId || type == ESM::Ingredient::sRecordId;
+
         MWWorld::InventoryStore& invStore = mPtr.getClass().getInventoryStore(mPtr);
         auto [eqSlots, canStack] = ptr.getClass().getEquipmentSlots(ptr);
         int useCount = isFromDragAndDrop ? static_cast<int>(mDragAndDrop->mDraggedCount) : ptr.getCellRef().getCount();
@@ -689,8 +700,8 @@ namespace MWGui
         if (isFromDragAndDrop)
         {
             // Feature: Don't finish draganddrop if potion or ingredient was used
-            if (type == ESM::Potion::sRecordId || type == ESM::Ingredient::sRecordId)
-                mDragAndDrop->update();
+            if (isConsumable)
+                mDragAndDrop->onItemConsumed();
             else if (!willEquip)
                 mDragAndDrop->drop(mTradeModel, mItemView);
             else
@@ -847,6 +858,13 @@ namespace MWGui
         const MWMechanics::NpcStats& playerStats = player.getClass().getNpcStats(player);
         if (playerStats.isParalyzed() || playerStats.getKnockedDown() || playerStats.isDead())
             return;
+
+        std::unique_ptr<MWWorld::Action> werewolfAction = object.getClass().getWerewolfRefusalAction(player);
+        if (werewolfAction)
+        {
+            werewolfAction->execute(player);
+            return;
+        }
 
         MWBase::Environment::get().getMechanicsManager()->itemTaken(player, object, MWWorld::Ptr(), count);
 

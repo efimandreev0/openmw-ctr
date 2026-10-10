@@ -7,6 +7,17 @@ local vfs = require('openmw.vfs')
 local world = require('openmw.world')
 local I = require('openmw.interfaces')
 
+local function initPlayer(player)
+    player = player or world.players[1]
+    player:teleport('', util.vector3(4096, 4096, 1745), util.transform.identity)
+    coroutine.yield()
+    return player
+end
+
+testing.setSetupLocalTest(function(player)
+    initPlayer(player)
+end)
+
 testing.registerGlobalTest('crash in lua coroutine when accessing type (#8757)', function()
     local co = coroutine.wrap(function()
         testing.expectEqual(tostring(world.players[1].type), 'Player')
@@ -234,13 +245,6 @@ testing.registerGlobalTest('memory limit', function()
     testing.expectEqual(err, 'not enough memory')
 end)
 
-local function initPlayer()
-    local player = world.players[1]
-    player:teleport('', util.vector3(4096, 4096, 1745), util.transform.identity)
-    coroutine.yield()
-    return player
-end
-
 testing.registerGlobalTest('vfs', function()
     local file = 'test_vfs_dir/lines.txt'
     local nosuchfile = 'test_vfs_dir/nosuchfile'
@@ -314,38 +318,41 @@ testing.registerGlobalTest('record model property', function()
     testing.expectEqual(types.NPC.record(player).model, 'meshes/basicplayer.dae')
 end)
 
-local function registerPlayerTest(name)
-    testing.registerGlobalTest(name, function()
-        local player = initPlayer()
-        testing.runLocalTest(player, name)
-    end)
-end
-
-registerPlayerTest('player yaw rotation')
-registerPlayerTest('player pitch rotation')
-registerPlayerTest('player pitch and yaw rotation')
-registerPlayerTest('player rotation')
-registerPlayerTest('player forward running')
-registerPlayerTest('player diagonal walking')
-registerPlayerTest('findPath')
-registerPlayerTest('findPath with checkpoints')
-registerPlayerTest('findRandomPointAroundCircle')
-registerPlayerTest('castNavigationRay')
-registerPlayerTest('findNearestNavMeshPosition')
-registerPlayerTest('player memory limit')
-
-testing.registerGlobalTest('player weapon attack', function()
+testing.registerGlobalTest('player approaches and attacks a creature', function()
     local player = initPlayer()
     world.createObject('basic_dagger1h', 1):moveInto(player)
-    testing.runLocalTest(player, 'player weapon attack')
+    testing.runLocalTest(player, 'player approaches and attacks a creature')
 end)
 
-testing.registerGlobalTest('load while teleporting - init player', function()
+testing.registerGlobalTest('equipped weapon damages a stationary target', function()
+    local player = initPlayer()
+    local target = world.createObject('landracer')
+    target:addScript('idle.lua')
+    target:teleport(player.cell, player.position + util.vector3(0, 70, 0))
+    world.createObject('basic_dagger1h', 1):moveInto(player)
+    testing.runLocalTest(player, 'equipped weapon damages a stationary target', target)
+    target:remove()
+end)
+
+testing.registerGlobalTest('camera.getFocusRay should report the object under the crosshair', function()
+    local player = initPlayer()
+    local target = world.createObject(types.NPC.record(player).id)
+    target:teleport(player.cell, player.position + util.vector3(0, 150, 0), util.transform.rotateZ(math.rad(180)))
+    coroutine.yield()
+    coroutine.yield()
+    local ok, err = pcall(testing.runLocalTest, player, 'camera.getFocusRay should report the object under the crosshair')
+    target:remove()
+    if not ok then
+        error(err, 0)
+    end
+end)
+
+testing.registerGlobalTestStep('load while teleporting - init player', function()
     local player = world.players[1]
     player:teleport('Museum of Wonders', util.vector3(0, -1500, 111), util.transform.rotateZ(math.rad(180)))
 end)
 
-testing.registerGlobalTest('load while teleporting - teleport', function()
+testing.registerGlobalTestStep('load while teleporting - teleport', function()
     local player = world.players[1]
     local landracer = world.createObject('landracer')
     landracer:teleport(player.cell, player.position + util.vector3(0, 500, 0))
@@ -358,14 +365,14 @@ testing.registerGlobalTest('load while teleporting - teleport', function()
     landracer:teleport(player.cell, player.position)
 end)
 
-testing.registerGlobalTest('nan float', function()
+testing.registerGlobalTest('world.setGameTimeScale should not accept nan', function()
     local nan = 0.0 / 0.0
     local ok, err = pcall(function() world.setGameTimeScale(nan) end)
     testing.expectEqual(ok, false)
     testing.expectEqual(err, 'Value must be a finite number')
 end)
 
-testing.registerGlobalTest('nan vector', function()
+testing.registerGlobalTest('weather.stormDirection should not accept a vector with a nan component', function()
     local nan = 0.0 / 0.0
     local ok, err = pcall(function() core.weather.records[1].stormDirection = util.vector3(nan, nan, nan) end)
     testing.expectEqual(ok, false)
@@ -384,6 +391,64 @@ testing.registerGlobalTest('mwscript magic interactions', function()
     end
     testing.expectEqual(script.isRunning, true, 'OpenMW_Tests should not crash')
     testing.expectEqual(globals.OpenMW_Tests_Failed, 0, 'OpenMW_Tests should run without issue')
+end)
+
+testing.registerGlobalTest('openmw.util math conventions', function()
+
+    local a = util.vector3(1, 2, 3)
+    local b = util.vector3(4, 5, 6)
+    testing.expectEqual(a * b, 32, 'util.vector3 * util.vector3 must be the dot product')
+    testing.expectEqual(a:dot(b), 32, 'util.vector3:dot must equal *')
+
+    testing.expectEqualWithDelta(util.vector3(3, 4, 0):length(), 5, 1e-5, 'util.vector3:length is magnitude')
+    testing.expectEqual(util.vector3(3, 4, 0):length2(), 25, 'util.vector3:length2 is magnitude squared')
+
+    local c = util.vector3(1, 0, 0):cross(util.vector3(0, 1, 0))
+    testing.expectEqualWithDelta(c.x, 0, 1e-5, 'cross x')
+    testing.expectEqualWithDelta(c.y, 0, 1e-5, 'cross y')
+    testing.expectEqualWithDelta(c.z, 1, 1e-5, 'cross z (right-handed)')
+
+    testing.expectEqual(util.vector2(1, 2) * util.vector2(3, 4), 11, 'util.vector2 * util.vector2 must be the dot product')
+
+    local rotPi = util.transform.rotateZ(math.pi)
+    local move10x = util.transform.move(util.vector3(10, 0, 0))
+    local v = util.vector3(1, 0, 0)
+    local moveThenRotate = (rotPi * move10x) * v
+    testing.expectEqualWithDelta(moveThenRotate.x, -11, 1e-5, 'composition applies right operand first')
+    local rotateThenMove = (move10x * rotPi) * v
+    testing.expectEqualWithDelta(rotateThenMove.x, 9, 1e-5, 'composition applies right operand first (reverse case)')
+
+    local roundTrip = rotPi:inverse() * (rotPi * v)
+    testing.expectEqualWithDelta(roundTrip.x, 1, 1e-5, 'inverse round-trip x')
+    testing.expectEqualWithDelta(roundTrip.y, 0, 1e-5, 'inverse round-trip y')
+end)
+
+testing.registerGlobalTest('load script generated static', function()
+    local record = types.Static.records.OMW_Generated_Static
+    testing.expectNotEqual(record, nil, 'OMW_Generated_Static should have been generated')
+    testing.expectEqual(record.model, 'meshes/generatedonload.nif')
+end)
+
+testing.registerGlobalTest('load script generated apparatuses', function()
+    local apparatus = types.Apparatus.records.OMW_Generated_Apparatus
+    testing.expectNotEqual(apparatus, nil)
+    testing.expectEqual(apparatus.name, 'Modified apparatus')
+    testing.expectEqual(apparatus.model, 'meshes/a/modified.nif')
+    testing.expectEqual(apparatus.icon, 'icons/a/modified.dds')
+    testing.expectEqual(apparatus.mwscript, nil)
+    testing.expectEqual(apparatus.type, types.Apparatus.TYPE.Calcinator)
+    testing.expectEqual(apparatus.quality, 10)
+    testing.expectEqual(apparatus.weight, 5.5)
+    testing.expectEqual(apparatus.value, 450)
+
+    local templated = types.Apparatus.records.OMW_Templated_Apparatus
+    testing.expectEqual(templated.name, 'Templated apparatus')
+    testing.expectEqual(templated.quality, apparatus.quality)
+    local copied = types.Apparatus.records.OMW_Copied_Apparatus
+    testing.expectEqual(copied.name, apparatus.name)
+    testing.expectEqual(copied.type, apparatus.type)
+    testing.expectEqual(types.Apparatus.records.OMW_Temporary_Apparatus, nil)
+    testing.expectEqual(types.Apparatus.records.OMW_Invalid_Apparatus, nil)
 end)
 
 return {

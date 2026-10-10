@@ -2,6 +2,7 @@
 #define ENGINE_H
 
 #include <filesystem>
+#include <memory>
 
 #include <components/compiler/extensions.hpp>
 #include <components/debug/debuglog.hpp>
@@ -10,8 +11,10 @@
 #include <components/settings/settings.hpp>
 #include <components/translation/translation.hpp>
 
+#ifndef OPENMW_CTR_NATIVE
 #include <osgViewer/Viewer>
 #include <osgViewer/ViewerEventHandlers>
+#endif
 
 #include "mwbase/environment.hpp"
 
@@ -41,6 +44,11 @@ namespace MWLua
 {
     class LuaManager;
     class Worker;
+}
+
+namespace MWNoLua
+{
+    class NullLuaManager;
 }
 
 namespace Stereo
@@ -128,8 +136,10 @@ namespace OMW
         SDL_Window* mWindow;
         std::unique_ptr<VFS::Manager> mVFS;
         std::unique_ptr<Resource::ResourceSystem> mResourceSystem;
-        osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
+        std::shared_ptr<SceneUtil::WorkQueue> mWorkQueue;
+#ifndef OPENMW_CTR_NATIVE
         std::unique_ptr<SceneUtil::UnrefQueue> mUnrefQueue;
+#endif
         std::unique_ptr<MWWorld::World> mWorld;
         std::unique_ptr<MWSound::SoundManager> mSoundManager;
         std::unique_ptr<MWScript::ScriptManager> mScriptManager;
@@ -139,8 +149,12 @@ namespace OMW
         std::unique_ptr<MWDialogue::Journal> mJournal;
         std::unique_ptr<MWInput::InputManager> mInputManager;
         std::unique_ptr<MWState::StateManager> mStateManager;
+#ifdef OPENMW_CTR_NATIVE
+        std::unique_ptr<MWNoLua::NullLuaManager> mLuaManager;
+#else
         std::unique_ptr<MWLua::LuaManager> mLuaManager;
         std::unique_ptr<MWLua::Worker> mLuaWorker;
+#endif
         std::unique_ptr<L10n::Manager> mL10nManager;
         MWBase::Environment mEnvironment;
         ToUTF8::FromType mEncoding;
@@ -148,16 +162,20 @@ namespace OMW
         Files::PathContainer mDataDirs;
         std::vector<std::string> mArchives;
         std::filesystem::path mResDir;
+#ifndef OPENMW_CTR_NATIVE
         osg::ref_ptr<osgViewer::Viewer> mViewer;
         osg::ref_ptr<osgViewer::ScreenCaptureHandler> mScreenCaptureHandler;
         osg::ref_ptr<SceneUtil::AsyncScreenCaptureOperation> mScreenCaptureOperation;
         osg::ref_ptr<SceneUtil::SelectDepthFormatOperation> mSelectDepthFormatOperation;
         osg::ref_ptr<SceneUtil::Color::SelectColorFormatOperation> mSelectColorFormatOperation;
+#endif
         std::string mCellName;
         std::vector<std::string> mContentFiles;
         std::vector<std::string> mGroundcoverFiles;
 
+#ifndef OPENMW_CTR_NATIVE
         std::unique_ptr<Stereo::Manager> mStereoManager;
+#endif
 
         bool mSkipMenu;
         bool mUseSound;
@@ -200,6 +218,11 @@ namespace OMW
 
         void createWindow();
         void setWindowIcon();
+
+#ifdef OPENMW_CTR_NATIVE
+        void present(bool drawScene);
+        unsigned mFrameNumber = 0;
+#endif
 
     public:
         Engine(Files::ConfigurationManager& configurationManager);

@@ -1,5 +1,7 @@
 #include "positionattitudetransform.hpp"
 
+#ifndef __3DS__
+
 namespace SceneUtil
 {
 
@@ -46,3 +48,5 @@ namespace SceneUtil
     }
 
 }
+
+#endif

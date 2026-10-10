@@ -1,16 +1,19 @@
 #ifndef OPENMW_ESM_NPC_H
 #define OPENMW_ESM_NPC_H
 
-#include <array>
+#include <map>
 #include <string>
 #include <vector>
 
+#include <components/esm/attr.hpp>
+#include <components/esm/defs.hpp>
+#include <components/esm/path.hpp>
+#include <components/esm/refid.hpp>
+
 #include "aipackage.hpp"
-#include "components/esm/attr.hpp"
-#include "components/esm/defs.hpp"
-#include "components/esm/refid.hpp"
 #include "loadcont.hpp"
 #include "loadskil.hpp"
+#include "statmap.hpp"
 #include "spelllist.hpp"
 #include "transport.hpp"
 
@@ -75,17 +78,28 @@ namespace ESM
             NPC_DEFAULT = 52
         };
 
+#ifdef __3DS__
+        using AttributeMap
+            = StatMap<unsigned char, Attribute::Length, &Attribute::indexToRefId, &Attribute::refIdToIndex>;
+        using SkillMap = StatMap<unsigned char, Skill::Length, &Skill::indexToRefId, &Skill::refIdToIndex>;
+#else
+        using AttributeMap = std::map<ESM::RefId, unsigned char>;
+        using SkillMap = std::map<ESM::RefId, unsigned char>;
+#endif
+
         struct NPDTstruct52
         {
-            int16_t mLevel;
-            std::array<unsigned char, Attribute::Length> mAttributes;
-
+            AttributeMap mAttributes;
             // mSkill can grow up to 200, it must be unsigned
-            std::array<unsigned char, Skill::Length> mSkills;
+            SkillMap mSkills;
+            int16_t mLevel;
 
             uint16_t mHealth, mMana, mFatigue;
             unsigned char mDisposition, mReputation, mRank;
             int32_t mGold;
+
+            unsigned char getAttribute(ESM::RefId) const;
+            unsigned char getSkill(ESM::RefId) const;
         }; // 52 bytes
 
         unsigned char mNpdtType;
@@ -111,7 +125,8 @@ namespace ESM
 
         uint32_t mRecordFlags;
         RefId mId, mRace, mClass, mFaction, mScript;
-        std::string mModel, mName;
+        std::string mName;
+        Path mModel;
 
         // body parts
         RefId mHair, mHead;

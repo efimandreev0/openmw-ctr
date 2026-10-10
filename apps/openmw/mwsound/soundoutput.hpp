@@ -89,6 +89,7 @@ namespace MWSound
         bool isInitialized() const { return mInitialized; }
 
         friend class OpenALOutput;
+        friend class NdspOutput;
         friend class SoundManager;
         friend class SoundBufferPool;
     };

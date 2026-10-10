@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/characterpreview.hpp"
+#else
 #ifndef MWRENDER_CHARACTERPREVIEW_H
 #define MWRENDER_CHARACTERPREVIEW_H
 
@@ -122,3 +125,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

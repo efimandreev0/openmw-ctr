@@ -27,11 +27,6 @@ namespace Misc
     class Barrier;
 }
 
-namespace MWRender
-{
-    class DebugDrawer;
-}
-
 namespace MWPhysics
 {
     enum class LockingPolicy
@@ -44,7 +39,7 @@ namespace MWPhysics
     class PhysicsTaskScheduler
     {
     public:
-        PhysicsTaskScheduler(float physicsDt, btCollisionWorld* collisionWorld, MWRender::DebugDrawer* debugDrawer);
+        PhysicsTaskScheduler(float physicsDt, btCollisionWorld* collisionWorld);
         ~PhysicsTaskScheduler();
 
         /// @brief move actors taking into account desired movements and collisions
@@ -113,7 +108,6 @@ namespace MWPhysics
         float mPhysicsDt;
         float mTimeAccum;
         btCollisionWorld* mCollisionWorld;
-        MWRender::DebugDrawer* mDebugDrawer;
         std::vector<LOSRequest> mLOSCache;
         std::set<std::weak_ptr<PtrHolder>, std::owner_less<std::weak_ptr<PtrHolder>>> mUpdateAabb;
 

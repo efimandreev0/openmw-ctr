@@ -16,6 +16,7 @@
 #include <components/misc/convert.hpp>
 #include <components/sceneutil/lightmanager.hpp>
 #include <components/sceneutil/nodecallback.hpp>
+#include <components/sceneutil/templateref.hpp>
 #include <components/settings/values.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/terrain/quadtreenode.hpp>
@@ -345,7 +346,7 @@ namespace MWRender
 
     Groundcover::Groundcover(
         Resource::SceneManager* sceneManager, float density, float viewDistance, const MWWorld::GroundcoverStore& store)
-        : GenericResourceManager<GroundcoverChunkId>(nullptr, Settings::cells().mCacheExpiryDelay)
+        : Resource::NodeResourceManager<GroundcoverChunkId>(nullptr, Settings::cells().mCacheExpiryDelay)
         , mSceneManager(sceneManager)
         , mDensity(density)
         , mStateset(new osg::StateSet)
@@ -441,7 +442,7 @@ namespace MWRender
                 | osg::CopyOp::DEEP_COPY_PRIMITIVES));
 
             // Keep link to original mesh to keep it in cache
-            group->getOrCreateUserDataContainer()->addUserObject(new Resource::TemplateRef(temp));
+            SceneUtil::addTemplateRef(*group, temp);
 
             InstancingVisitor visitor(entries, worldCenter);
             node->accept(visitor);
@@ -455,13 +456,9 @@ namespace MWRender
 
         group->setStateSet(mStateset);
         group->setNodeMask(Mask_Groundcover);
-        if (mSceneManager->getLightingMethod() != SceneUtil::LightingMethod::FFP)
+        if (Settings::groundcover().mPointLighting)
             group->addCullCallback(new SceneUtil::LightListCallback);
-#if defined(__vita__) || defined(__3DS__)
-        mSceneManager->recreateShaders(group, "groundcover", false, mProgramTemplate);
-#else
-        mSceneManager->recreateShaders(group, "groundcover", true, mProgramTemplate);
-#endif
+        mSceneManager->recreateShaders(group, "groundcover", mProgramTemplate);
         mSceneManager->shareState(group);
         group->getBound();
         return group;

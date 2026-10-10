@@ -1,6 +1,63 @@
 #ifndef OPENMW_COMPONENTS_POSITIONATTITUDE_TRANSFORM_H
 #define OPENMW_COMPONENTS_POSITIONATTITUDE_TRANSFORM_H
 
+#ifdef __3DS__
+
+#include <cstdint>
+
+#include <osg/Quat>
+#include <osg/Referenced>
+#include <osg/Vec3f>
+
+namespace SceneUtil
+{
+    class PositionAttitudeTransform : public osg::Referenced
+    {
+    public:
+        PositionAttitudeTransform() = default;
+
+        void setPosition(const osg::Vec3f& pos)
+        {
+            mPosition = pos;
+            ++mRevision;
+        }
+        const osg::Vec3f& getPosition() const { return mPosition; }
+
+        void setAttitude(const osg::Quat& quat)
+        {
+            mAttitude = quat;
+            ++mRevision;
+        }
+        const osg::Quat& getAttitude() const { return mAttitude; }
+
+        void setScale(const osg::Vec3f& scale)
+        {
+            mScale = scale;
+            ++mRevision;
+        }
+        const osg::Vec3f& getScale() const { return mScale; }
+
+        void setNodeMask(unsigned int mask) { mNodeMask = mask; }
+        unsigned int getNodeMask() const { return mNodeMask; }
+
+        std::uint32_t getRevision() const { return mRevision; }
+
+        void* mRenderInstance = nullptr;
+
+    protected:
+        ~PositionAttitudeTransform() override = default;
+
+    private:
+        osg::Vec3f mPosition;
+        osg::Quat mAttitude;
+        osg::Vec3f mScale{ 1.f, 1.f, 1.f };
+        unsigned int mNodeMask = ~0u;
+        std::uint32_t mRevision = 0;
+    };
+}
+
+#else
+
 #include <osg/Transform>
 
 namespace SceneUtil
@@ -57,5 +114,7 @@ namespace SceneUtil
     };
 
 }
+
+#endif // __3DS__
 
 #endif

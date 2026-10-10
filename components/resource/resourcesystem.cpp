@@ -3,11 +3,13 @@
 #include <algorithm>
 
 #include "animblendrulesmanager.hpp"
+#include "niffilemanager.hpp"
+#ifndef __3DS__
 #include "bgsmfilemanager.hpp"
 #include "imagemanager.hpp"
 #include "keyframemanager.hpp"
-#include "niffilemanager.hpp"
 #include "scenemanager.hpp"
+#endif
 
 namespace Resource
 {
@@ -17,19 +19,23 @@ namespace Resource
         : mVFS(vfs)
     {
         mNifFileManager = std::make_unique<NifFileManager>(vfs, encoder);
+#ifndef __3DS__
         mBgsmFileManager = std::make_unique<BgsmFileManager>(vfs, expiryDelay);
         mImageManager = std::make_unique<ImageManager>(vfs, expiryDelay);
         mSceneManager = std::make_unique<SceneManager>(
             vfs, mImageManager.get(), mNifFileManager.get(), mBgsmFileManager.get(), expiryDelay);
         mKeyframeManager = std::make_unique<KeyframeManager>(vfs, mSceneManager.get(), expiryDelay, encoder);
+#endif
         mAnimBlendRulesManager = std::make_unique<AnimBlendRulesManager>(vfs, expiryDelay);
 
         addResourceManager(mNifFileManager.get());
+#ifndef __3DS__
         addResourceManager(mBgsmFileManager.get());
         addResourceManager(mKeyframeManager.get());
         // note, scene references images so add images afterwards for correct implementation of updateCache()
         addResourceManager(mSceneManager.get());
         addResourceManager(mImageManager.get());
+#endif
         addResourceManager(mAnimBlendRulesManager.get());
     }
 
@@ -42,17 +48,29 @@ namespace Resource
 
     SceneManager* ResourceSystem::getSceneManager()
     {
+#ifdef __3DS__
+        return nullptr;
+#else
         return mSceneManager.get();
+#endif
     }
 
     ImageManager* ResourceSystem::getImageManager()
     {
+#ifdef __3DS__
+        return nullptr;
+#else
         return mImageManager.get();
+#endif
     }
 
     BgsmFileManager* ResourceSystem::getBgsmFileManager()
     {
+#ifdef __3DS__
+        return nullptr;
+#else
         return mBgsmFileManager.get();
+#endif
     }
 
     NifFileManager* ResourceSystem::getNifFileManager()
@@ -62,7 +80,11 @@ namespace Resource
 
     KeyframeManager* ResourceSystem::getKeyframeManager()
     {
+#ifdef __3DS__
+        return nullptr;
+#else
         return mKeyframeManager.get();
+#endif
     }
 
     AnimBlendRulesManager* ResourceSystem::getAnimBlendRulesManager()

@@ -25,6 +25,8 @@ namespace MWLua
 
     // Initialize Lua packages that are available only for menu scripts (additionally to common packages).
     std::map<std::string, sol::object> initMenuPackages(const Context& context);
+
+    std::map<std::string, sol::object> initLoadPackages(const Context& context);
 }
 
 #endif // MWLUA_LUABINDINGS_H

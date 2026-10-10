@@ -13,6 +13,8 @@ namespace ESM
     {
         int32_t mX, mY; // Only used for interior cells
         std::vector<char> mImageData;
+
+        bool mLegacyTgaImageData = false;
     };
 
     // format 0, saved games only

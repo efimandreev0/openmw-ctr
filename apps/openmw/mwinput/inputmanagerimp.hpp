@@ -1,10 +1,10 @@
 #ifndef MWINPUT_MWINPUTMANAGERIMP_H
 #define MWINPUT_MWINPUTMANAGERIMP_H
 
+#include <functional>
 #include <memory>
 
 #include <osg/ref_ptr>
-#include <osgViewer/ViewerEventHandlers>
 
 #include <components/sdlutil/events.hpp>
 #include <components/settings/settings.hpp>
@@ -22,6 +22,11 @@ namespace MWWorld
 namespace MWBase
 {
     class WindowManager;
+}
+
+namespace osgViewer
+{
+    class Viewer;
 }
 
 namespace SDLUtil
@@ -48,9 +53,14 @@ namespace MWInput
     class InputManager final : public MWBase::InputManager
     {
     public:
-        InputManager(SDL_Window* window, osg::ref_ptr<osgViewer::Viewer> viewer,
-            osg::ref_ptr<osgViewer::ScreenCaptureHandler> screenCaptureHandler, const std::filesystem::path& userFile,
-            bool userFileExists, const std::filesystem::path& userControllerBindingsFile,
+#ifdef OPENMW_CTR_NATIVE
+        using ViewerHandle = void*;
+#else
+        using ViewerHandle = osg::ref_ptr<osgViewer::Viewer>;
+#endif
+        InputManager(SDL_Window* window, ViewerHandle viewer, std::function<void()> takeScreenshot,
+            const std::filesystem::path& userFile, bool userFileExists,
+            const std::filesystem::path& userControllerBindingsFile,
             const std::filesystem::path& controllerBindingsFile, bool grab);
 
         ~InputManager() final;
@@ -61,6 +71,11 @@ namespace MWInput
         void update(float dt, bool disableControls, bool disableEvents = false) override;
 
         void changeInputMode(bool guiMode) override;
+
+        void setCursorMode(MWBase::CursorMode mode) override;
+        MWBase::CursorMode getCursorMode() const override;
+        void setCursorPosition(const osg::Vec2f& position) override;
+        osg::Vec2f getCursorPosition() const override;
 
         void processChangedSettings(const Settings::CategorySettingVector& changed) override;
 

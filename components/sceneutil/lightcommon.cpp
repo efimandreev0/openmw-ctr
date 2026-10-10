@@ -2,7 +2,7 @@
 #include "lightcommon.hpp"
 #include <components/esm3/loadligh.hpp>
 #include <components/esm4/loadligh.hpp>
-#include <components/sceneutil/util.hpp>
+#include <components/sceneutil/colourutil.hpp>
 
 namespace SceneUtil
 {

@@ -1,6 +1,5 @@
 #include "chunkmanager.hpp"
 
-#include <osg/Material>
 #include <osg/Texture2D>
 
 #include <osgUtil/IncrementalCompileOperation>
@@ -8,8 +7,8 @@
 #include <components/esm/util.hpp>
 #include <components/resource/objectcache.hpp>
 #include <components/resource/scenemanager.hpp>
-
 #include <components/sceneutil/lightmanager.hpp>
+#include <components/sceneutil/material.hpp>
 
 #include "compositemaprenderer.hpp"
 #include "material.hpp"
@@ -39,7 +38,7 @@ namespace Terrain
 
     ChunkManager::ChunkManager(Storage* storage, Resource::SceneManager* sceneMgr, TextureManager* textureManager,
         CompositeMapRenderer* renderer, ESM::RefId worldspace, double expiryDelay)
-        : GenericResourceManager<ChunkKey>(nullptr, expiryDelay)
+        : Resource::NodeResourceManager<ChunkKey>(nullptr, expiryDelay)
         , QuadTreeWorld::ChunkManager(worldspace)
         , mStorage(storage)
         , mSceneManager(sceneMgr)
@@ -56,8 +55,10 @@ namespace Terrain
     {
         mMultiPassRoot = new osg::StateSet;
         mMultiPassRoot->setRenderingHint(osg::StateSet::OPAQUE_BIN);
-        osg::ref_ptr<osg::Material> material(new osg::Material);
-        material->setColorMode(osg::Material::AMBIENT_AND_DIFFUSE);
+        osg::ref_ptr<SceneUtil::Material> material(
+            new SceneUtil::Material({ .mVertexColorMode = SceneUtil::VertexColorModes::AmbientAndDiffuse }));
+        material->setVertexColorMode(SceneUtil::VertexColorModes::AmbientAndDiffuse);
+        material->updateStateSet(mMultiPassRoot);
         mMultiPassRoot->setAttributeAndModes(material, osg::StateAttribute::ON);
     }
 
@@ -96,14 +97,14 @@ namespace Terrain
 
     void ChunkManager::clearCache()
     {
-        GenericResourceManager<ChunkKey>::clearCache();
+        Resource::NodeResourceManager<ChunkKey>::clearCache();
 
         mBufferCache.clearCache();
     }
 
     void ChunkManager::releaseGLObjects(osg::State* state)
     {
-        GenericResourceManager<ChunkKey>::releaseGLObjects(state);
+        Resource::NodeResourceManager<ChunkKey>::releaseGLObjects(state);
         mBufferCache.releaseGLObjects(state);
     }
 
@@ -126,19 +127,19 @@ namespace Terrain
         if (chunkSize > mMaxCompGeometrySize)
         {
             createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(chunkSize / 4.f, chunkSize / 4.f),
-                osg::Vec4f(
-                    texCoords.x() + texCoords.z() / 2.f, texCoords.y(), texCoords.z() / 2.f, texCoords.w() / 2.f),
-                compositeMap);
-            createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(-chunkSize / 4.f, chunkSize / 4.f),
-                osg::Vec4f(texCoords.x(), texCoords.y(), texCoords.z() / 2.f, texCoords.w() / 2.f), compositeMap);
-            createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(chunkSize / 4.f, -chunkSize / 4.f),
                 osg::Vec4f(texCoords.x() + texCoords.z() / 2.f, texCoords.y() + texCoords.w() / 2.f,
                     texCoords.z() / 2.f, texCoords.w() / 2.f),
                 compositeMap);
-            createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(-chunkSize / 4.f, -chunkSize / 4.f),
+            createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(-chunkSize / 4.f, chunkSize / 4.f),
                 osg::Vec4f(
                     texCoords.x(), texCoords.y() + texCoords.w() / 2.f, texCoords.z() / 2.f, texCoords.w() / 2.f),
                 compositeMap);
+            createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(chunkSize / 4.f, -chunkSize / 4.f),
+                osg::Vec4f(
+                    texCoords.x() + texCoords.z() / 2.f, texCoords.y(), texCoords.z() / 2.f, texCoords.w() / 2.f),
+                compositeMap);
+            createCompositeMapGeometry(chunkSize / 2.f, chunkCenter + osg::Vec2f(-chunkSize / 4.f, -chunkSize / 4.f),
+                osg::Vec4f(texCoords.x(), texCoords.y(), texCoords.z() / 2.f, texCoords.w() / 2.f), compositeMap);
         }
         else
         {
@@ -171,15 +172,6 @@ namespace Terrain
         std::vector<osg::ref_ptr<osg::Image>> blendmaps;
         mStorage->getBlendmaps(chunkSize, chunkCenter, blendmaps, layerList, mWorldspace);
 
-        bool useShaders = mSceneManager->getForceShaders();
-#if defined(__vita__) || defined(__3DS__)
-        useShaders = false;
-#else
-        if (!mSceneManager->getClampLighting())
-            useShaders = true; // always use shaders when lighting is unclamped, this is to avoid lighting seams between
-                               // a terrain chunk with normal maps and one without normal maps
-#endif
-
         std::vector<TextureLayer> layers;
         {
             for (std::vector<LayerInfo>::const_iterator it = layerList.begin(); it != layerList.end(); ++it)
@@ -193,17 +185,9 @@ namespace Terrain
                 if (!forCompositeMap && !it->mNormalMap.empty())
                     textureLayer.mNormalMap = mTextureManager->getTexture(it->mNormalMap);
 
-#if !defined(__vita__) && !defined(__3DS__)
-                if (it->requiresShaders())
-                    useShaders = true;
-#endif
-
                 layers.push_back(textureLayer);
             }
         }
-
-        if (forCompositeMap)
-            useShaders = false;
 
         std::vector<osg::ref_ptr<osg::Texture2D>> blendmapTextures;
         for (std::vector<osg::ref_ptr<osg::Image>>::const_iterator it = blendmaps.begin(); it != blendmaps.end(); ++it)
@@ -218,8 +202,8 @@ namespace Terrain
 
         int tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
-        return ::Terrain::createPasses(useShaders, mSceneManager, layers, blendmapTextures, tileCount,
-            static_cast<float>(tileCount), ESM::isEsm4Ext(mWorldspace));
+        return ::Terrain::createPasses(mSceneManager, layers, blendmapTextures, tileCount,
+            static_cast<float>(tileCount), forCompositeMap, ESM::isEsm4Ext(mWorldspace));
     }
 
     osg::ref_ptr<osg::Node> ChunkManager::createChunk(float chunkSize, const osg::Vec2f& chunkCenter, unsigned char lod,
@@ -312,9 +296,8 @@ namespace Terrain
                 layer.mDiffuseMap = compositeMap->mTexture;
                 layer.mParallax = false;
                 layer.mSpecular = false;
-                geometry->setPasses(::Terrain::createPasses(
-                    mSceneManager->getForceShaders() || !mSceneManager->getClampLighting(), mSceneManager,
-                    std::vector<TextureLayer>(1, layer), std::vector<osg::ref_ptr<osg::Texture2D>>(), 1, 1.f));
+                geometry->setPasses(::Terrain::createPasses(mSceneManager, std::vector<TextureLayer>(1, layer),
+                    std::vector<osg::ref_ptr<osg::Texture2D>>(), 1, 1.f, false));
             }
             else
             {

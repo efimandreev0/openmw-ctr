@@ -7,6 +7,7 @@
 
 #include <osgDB/ReaderWriter>
 #include <osgDB/Registry>
+#include <osgViewer/Renderer>
 #include <osgUtil/RenderBin>
 #include <osgViewer/ViewerEventHandlers>
 
@@ -30,7 +31,6 @@
 #endif
 
 #include <components/misc/rng.hpp>
-#include <components/misc/strings/format.hpp>
 
 #include <components/vfs/manager.hpp>
 #include <components/vfs/registerarchives.hpp>
@@ -337,6 +337,8 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
 
     try
     {
+        mLuaWorker->finishGc();
+
         // update input
         {
             ScopedProfile<UserStatsType::Input> profile(frameStart, frameNumber, *timer, *stats);
@@ -569,6 +571,8 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
 
     mLuaWorker->finishUpdate(frameStart, frameNumber, *stats);
 
+    mLuaWorker->gc();
+
     return true;
 }
 
@@ -593,9 +597,7 @@ OMW::Engine::Engine(Files::ConfigurationManager& configurationManager)
     , mCfgMgr(configurationManager)
     , mGlMaxTextureImageUnits(0)
 {
-#if SDL_VERSION_ATLEAST(2, 24, 0)
     SDL_SetHint(SDL_HINT_MAC_OPENGL_ASYNC_DISPATCH, "1");
-#endif
     SDL_SetHint(SDL_HINT_ACCELEROMETER_AS_JOYSTICK, "0"); // We use only gamepads
 
 #ifdef __3DS__
@@ -1037,7 +1039,7 @@ void OMW::Engine::prepareEngine()
     // to core 0 on Old3DS inside the wrapper (see ctr/CtrThreads.cpp).
     ctrSetThreadSpawnHint(2, 0x39, 128 * 1024);
 #endif
-    mWorkQueue = new SceneUtil::WorkQueue(Settings::cells().mPreloadNumThreads);
+    mWorkQueue = std::make_shared<SceneUtil::WorkQueue>(Settings::cells().mPreloadNumThreads);
 #ifdef __3DS__
     ctrClearThreadSpawnHint();
 #endif
@@ -1099,11 +1101,6 @@ void OMW::Engine::prepareEngine()
     mResourceSystem->getSceneManager()->setShaderPath(mResDir / "shaders");
 
     osg::GLExtensions& exts = SceneUtil::getGLExtensions();
-    bool shadersSupported = exts.glslLanguageVersion >= 1.2f;
-#if defined(__vita__) || defined(__3DS__)
-    // vitaGL cannot compile OpenMW's GLSL shaders — force fixed-function path
-    shadersSupported = false;
-#endif
 
 #if OSG_VERSION_LESS_THAN(3, 6, 6)
     // hack fix for https://github.com/openscenegraph/OpenSceneGraph/issues/1028
@@ -1122,12 +1119,16 @@ void OMW::Engine::prepareEngine()
 #endif
     VITA_CRUMB("prepareEngine() creating WindowManager");
     mWindowManager = std::make_unique<MWGui::WindowManager>(mWindow, mViewer, guiRoot, mResourceSystem.get(),
-        mWorkQueue.get(), mCfgMgr.getLogPath(), mScriptConsoleMode, mTranslationDataStorage, mEncoding, mExportFonts,
-        Version::getOpenmwVersionDescription(), shadersSupported, mCfgMgr);
+        mWorkQueue, mCfgMgr.getLogPath(), mScriptConsoleMode, mTranslationDataStorage, mEncoding, mExportFonts,
+        Version::getOpenmwVersionDescription(), mCfgMgr);
     mEnvironment.setWindowManager(*mWindowManager);
 
+    auto takeScreenshot = [this] {
+        mScreenCaptureHandler->setFramesToCapture(1);
+        mScreenCaptureHandler->captureNextFrame(*mViewer);
+    };
     VITA_CRUMB("prepareEngine() creating InputManager");
-    mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, mScreenCaptureHandler, keybinderUser,
+    mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, takeScreenshot, keybinderUser,
         keybinderUserExists, userGameControllerdb, gameControllerdb, mGrab);
     mEnvironment.setInputManager(*mInputManager);
 
@@ -1165,23 +1166,63 @@ void OMW::Engine::prepareEngine()
     mEnvironment.setWorldModel(mWorld->getWorldModel());
     mEnvironment.setESMStore(mWorld->getStore());
 
+    const MWWorld::Store<ESM::GameSetting>* gmst = &mWorld->getStore().get<ESM::GameSetting>();
+    mL10nManager->setGmstLoader([gmst, misses = std::set<std::string, Misc::StringUtils::CiComp>()](
+                                    std::string_view gmstName) mutable -> const std::string* {
+        const ESM::GameSetting* res = gmst->search(gmstName);
+        if (res && res->mValue.getType() == ESM::VT_String)
+            return &res->mValue.getString();
+        if (misses.emplace(gmstName).second)
+            Log(Debug::Error) << "GMST " << gmstName << " not found";
+        return nullptr;
+    });
+
+    mWindowManager->setStore(mWorld->getStore());
+
+    mTranslationDataStorage.setEncoder(mEncoder.get());
+    for (auto& mContentFile : mContentFiles)
+    {
+        VITA_CRUMB(("translation: " + mContentFile).c_str());
+        mTranslationDataStorage.loadTranslationData(mFileCollections, mContentFile);
+    }
+    VITA_CRUMB("translation done");
+
+    Compiler::registerExtensions(mExtensions);
+
+    mScriptContext = std::make_unique<MWScript::CompilerContext>(MWScript::CompilerContext::Type_Full);
+    mScriptContext->setExtensions(&mExtensions);
+
+    mScriptManager = std::make_unique<MWScript::ScriptManager>(mWorld->getStore(), *mScriptContext, mWarningsMode);
+    mEnvironment.setScriptManager(*mScriptManager);
+    VITA_CRUMB("ScriptManager done");
+
+    mMechanicsManager = std::make_unique<MWMechanics::MechanicsManager>();
+    mEnvironment.setMechanicsManager(*mMechanicsManager);
+    VITA_CRUMB("MechanicsManager done");
+
+    mJournal = std::make_unique<MWDialogue::Journal>();
+    mEnvironment.setJournal(*mJournal);
+
+    mDialogueManager = std::make_unique<MWDialogue::DialogueManager>(mExtensions, mTranslationDataStorage);
+    mEnvironment.setDialogueManager(*mDialogueManager);
+    VITA_CRUMB("DialogueManager done");
+
+    mLuaManager->loadPermanentStorage(mCfgMgr.getUserConfigPath());
+    mLuaManager->initPreLoad();
+
     Loading::Listener* listener = MWBase::Environment::get().getWindowManager()->getLoadingScreen();
-    Loading::AsyncListener asyncListener(*listener);
 #if defined(__vita__) || defined(__3DS__)
     Vita::logMemoryStatus("Pre-data-load");
     VITA_CRUMB("prepareEngine() loading data sync");
-    // Load data synchronously on Vita — saves async thread stack (~1MB)
-    // Pass listener directly (not asyncListener) since loading is synchronous.
-    // AsyncListener buffers updates for cross-thread use, but nobody calls update()
-    // on the main thread during sync loading, so the loading screen never draws.
     listener->loadingOn();
     mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), listener);
+    mSoundManager->warmStoreSounds();
     listener->loadingOff();
     Files::saveScanCache(
         mCfgMgr.getUserConfigPath() / "scan_cache.bin", mDataDirs, mFileCollections.getCollections());
     Vita::logMemoryStatus("Post-data-load");
 #else
-    VITA_CRUMB("prepareEngine() loading data async");
+    Loading::AsyncListener asyncListener(*listener);
     auto dataLoading = std::async(std::launch::async,
         [&] { mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), &asyncListener); });
 
@@ -1199,35 +1240,20 @@ void OMW::Engine::prepareEngine()
             asyncListener.update();
         dataLoading.get();
     }
+    mSoundManager->warmStoreSounds();
     listener->loadingOff();
 #endif
-    VITA_CRUMB("prepareEngine() data loaded");
 
-    VITA_CRUMB("prepareEngine() world init");
 #if defined(__vita__) || defined(__3DS__)
     Vita::logMemoryStatus("Pre-World::init");
 #endif
-    mWorld->init(mMaxRecastLogLevel, mViewer, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
+    mWorld->init(mMaxRecastLogLevel, mViewer, std::move(rootNode), mWorkQueue, *mUnrefQueue);
 #if defined(__vita__) || defined(__3DS__)
     Vita::logMemoryStatus("Post-World::init");
 #endif
-    VITA_CRUMB("prepareEngine() world init done");
     mEnvironment.setWorldScene(mWorld->getWorldScene());
     mWorld->setupPlayer();
     mWorld->setRandomSeed(mRandomSeed);
-
-    const MWWorld::Store<ESM::GameSetting>* gmst = &mWorld->getStore().get<ESM::GameSetting>();
-    mL10nManager->setGmstLoader([gmst, misses = std::set<std::string, Misc::StringUtils::CiComp>()](
-                                    std::string_view gmstName) mutable -> const std::string* {
-        const ESM::GameSetting* res = gmst->search(gmstName);
-        if (res && res->mValue.getType() == ESM::VT_String)
-            return &res->mValue.getString();
-        if (misses.emplace(gmstName).second)
-            Log(Debug::Error) << "GMST " << gmstName << " not found";
-        return nullptr;
-    });
-
-    mWindowManager->setStore(mWorld->getStore());
 #if defined(__vita__) || defined(__3DS__)
     Vita::logMemoryStatus("Pre-initUI");
 #endif
@@ -1235,38 +1261,7 @@ void OMW::Engine::prepareEngine()
 #if defined(__vita__) || defined(__3DS__)
     Vita::logMemoryStatus("Post-initUI");
 #endif
-
-    // Load translation data
-    mTranslationDataStorage.setEncoder(mEncoder.get());
-    for (auto& mContentFile : mContentFiles)
-    {
-        VITA_CRUMB(("translation: " + mContentFile).c_str());
-        mTranslationDataStorage.loadTranslationData(mFileCollections, mContentFile);
-    }
-    VITA_CRUMB("translation done");
-
-    Compiler::registerExtensions(mExtensions);
-
-    // Create script system
-    mScriptContext = std::make_unique<MWScript::CompilerContext>(MWScript::CompilerContext::Type_Full);
-    mScriptContext->setExtensions(&mExtensions);
-
-    mScriptManager = std::make_unique<MWScript::ScriptManager>(mWorld->getStore(), *mScriptContext, mWarningsMode);
-    mEnvironment.setScriptManager(*mScriptManager);
-    VITA_CRUMB("ScriptManager done");
-
-    // Create game mechanics system
-    mMechanicsManager = std::make_unique<MWMechanics::MechanicsManager>();
-    mEnvironment.setMechanicsManager(*mMechanicsManager);
-    VITA_CRUMB("MechanicsManager done");
-
-    // Create dialog system
-    mJournal = std::make_unique<MWDialogue::Journal>();
-    mEnvironment.setJournal(*mJournal);
-
-    mDialogueManager = std::make_unique<MWDialogue::DialogueManager>(mExtensions, mTranslationDataStorage);
-    mEnvironment.setDialogueManager(*mDialogueManager);
-    VITA_CRUMB("DialogueManager done");
+    mLuaManager->initPostLoad();
 
     // scripts
     if (mCompileAll)
@@ -1283,12 +1278,6 @@ void OMW::Engine::prepareEngine()
             Log(Debug::Info) << "compiled " << result.second << " of " << result.first << " dialogue scripts ("
                              << 100 * static_cast<double>(result.second) / result.first << "%)";
     }
-
-#if defined(__vita__) || defined(__3DS__)
-    Vita::logMemoryStatus("Pre-LuaInit");
-#endif
-    mLuaManager->loadPermanentStorage(mCfgMgr.getUserConfigPath());
-    mLuaManager->init();
 
     // starts a separate lua thread if "lua num threads" > 0
     mLuaWorker = std::make_unique<MWLua::Worker>(*mLuaManager);
@@ -1321,6 +1310,8 @@ void OMW::Engine::go()
     // Setup viewer
     VITA_CRUMB("go() creating viewer");
     mViewer = new osgViewer::Viewer;
+    mViewer->getCamera()->getOrCreateStateSet()->removeAttribute(osg::StateAttribute::MATERIAL);
+    SceneUtil::disableFFPStateForRenderer(static_cast<osgViewer::Renderer*>(mViewer->getCamera()->getRenderer()));
     mViewer->setReleaseContextAtEndOfFrameHint(false);
 
 #if defined(__vita__) || defined(__3DS__)

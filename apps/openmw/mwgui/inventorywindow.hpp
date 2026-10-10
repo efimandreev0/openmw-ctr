@@ -9,6 +9,8 @@
 
 #include <components/misc/notnullptr.hpp>
 
+#include <osg/Vec2i>
+
 namespace osg
 {
     class Group;

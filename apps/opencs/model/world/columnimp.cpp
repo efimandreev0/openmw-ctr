@@ -174,7 +174,7 @@ namespace CSMWorld
         const int size = Land::LAND_NUM_VERTS * 3;
         const Land& land = record.get();
 
-        DataType values(size, 0);
+        DataType values(size, 255);
 
         if (land.isDataLoaded(Land::DATA_VCLR))
         {

@@ -1,20 +1,26 @@
 #include "../nif/node.hpp"
 
+#include <components/nif/controller.hpp>
+#include <components/nif/data.hpp>
 #include <components/nif/node.hpp>
+#include <components/nif/particle.hpp>
 #include <components/nif/property.hpp>
 #include <components/nifosg/nifloader.hpp>
 #include <components/resource/bgsmfilemanager.hpp>
 #include <components/resource/imagemanager.hpp>
 #include <components/sceneutil/serialize.hpp>
+#include <components/sceneutil/visitor.hpp>
 #include <components/vfs/manager.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <osgDB/Registry>
+#include <osgParticle/ParticleSystem>
 
 #include <array>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -137,7 +143,7 @@ osg::Group {
       UserDataContainer TRUE {
         osg::DefaultUserDataContainer {
           UniqueID 5
-          UDC_UserObjects 3 {
+          UDC_UserObjects 2 {
             osg::UIntValueObject {
               UniqueID 6
               Name "recordIndex"
@@ -149,17 +155,12 @@ osg::Group {
               Value ")"
             << shaderPrefix << R"("
             }
-            osg::BoolValueObject {
-              UniqueID 8
-              Name "shaderRequired"
-              Value TRUE
-            }
           }
         }
       }
       StateSet TRUE {
         osg::StateSet {
-          UniqueID 9
+          UniqueID 8
         }
       }
     }
@@ -194,7 +195,7 @@ osg::Group {
       UserDataContainer TRUE {
         osg::DefaultUserDataContainer {
           UniqueID 5
-          UDC_UserObjects 3 {
+          UDC_UserObjects 2 {
             osg::UIntValueObject {
               UniqueID 6
               Name "recordIndex"
@@ -206,23 +207,18 @@ osg::Group {
               Value ")"
             << shaderPrefix << R"("
             }
-            osg::BoolValueObject {
-              UniqueID 8
-              Name "shaderRequired"
-              Value TRUE
-            }
           }
         }
       }
       StateSet TRUE {
         osg::StateSet {
-          UniqueID 9
+          UniqueID 8
           ModeList 1 {
             GL_DEPTH_TEST ON
           }
           AttributeList 1 {
             osg::Depth {
-              UniqueID 10
+              UniqueID 9
               Function LEQUAL
             }
             Value OFF
@@ -300,4 +296,87 @@ osg::Group {
 
     INSTANTIATE_TEST_SUITE_P(
         Params, NifOsgLoaderBSLightingShaderPrefixTest, ValuesIn(NifOsgLoaderBSLightingShaderPrefixTest::sParams));
+
+    TEST_F(NifOsgLoaderTest, shouldApplyAgeAffectorsToSavedParticlesOnLoad)
+    {
+        Nif::NiColorData colorData;
+        colorData.mKeyMap = std::make_shared<Nif::Vector4KeyMap>();
+        colorData.mKeyMap->mInterpolationType = Nif::InterpolationType_Linear;
+        colorData.mKeyMap->mKeys.push_back({ 0.f, { osg::Vec4f(1.f, 1.f, 1.f, 1.f), {}, {} } });
+        colorData.mKeyMap->mKeys.push_back({ 1.f, { osg::Vec4f(0.2f, 0.2f, 0.2f, 0.f), {}, {} } });
+
+        Nif::NiParticleColorModifier color;
+        color.mRecordType = Nif::RC_NiParticleColorModifier;
+        color.mNext = nullptr;
+        color.mController = nullptr;
+        color.mData = &colorData;
+
+        Nif::NiParticleGrowFade growFade;
+        growFade.mRecordType = Nif::RC_NiParticleGrowFade;
+        growFade.mNext = &color;
+        growFade.mController = nullptr;
+        growFade.mGrowTime = 1.f;
+        growFade.mFadeTime = 0.f;
+
+        Nif::NiParticlesData data;
+        data.mNumParticles = 2;
+        data.mActiveCount = 2;
+        data.mVertices = { osg::Vec3f(0.f, 0.f, 0.f), osg::Vec3f(10.f, 0.f, 0.f) };
+        data.mBoundingSphere = osg::BoundingSpheref(osg::Vec3f(), 10.f);
+
+        for (const bool emits : { true, false })
+        {
+            SCOPED_TRACE(emits ? "emits" : "emits nothing");
+
+            Nif::NiNode root;
+            init(root);
+            root.mRecordType = Nif::RC_NiNode;
+            root.mRecordIndex = 0;
+
+            Nif::NiParticleSystemController controller{};
+            init(controller);
+            controller.mRecordType = Nif::RC_NiParticleSystemController;
+            controller.mFlags = Nif::NiTimeController::Flag_Active;
+            controller.mInitialColor = osg::Vec4f(1.f, 1.f, 1.f, 1.f);
+            controller.mInitialSize = 4.f;
+            controller.mEmitter = emits ? &root : nullptr;
+            controller.mModifier = &growFade;
+            controller.mCollider = nullptr;
+            for (const float age : { 0.5f, 1.5f })
+            {
+                Nif::NiParticleInfo& info = controller.mParticles.emplace_back();
+                info.mAge = age;
+                info.mLifespan = 2.f;
+                info.mCode = static_cast<uint16_t>(controller.mParticles.size() - 1);
+            }
+
+            Nif::NiParticles particles;
+            init(particles);
+            particles.mRecordType = Nif::RC_NiParticles;
+            particles.mRecordIndex = 1;
+            particles.mData = Nif::NiGeometryDataPtr(&data);
+            particles.mController = &controller;
+            root.mChildren.push_back(Nif::NiAVObjectPtr(&particles));
+
+            Nif::NIFFile file(testNif);
+            file.mRoots.push_back(&root);
+            auto result = Loader::load(file, &mImageManager, &mMaterialManager);
+
+            SceneUtil::FindByClassVisitor find("ParticleSystem");
+            result->accept(find);
+            ASSERT_EQ(find.mFoundNodes.size(), 1u);
+            const auto& system = static_cast<const osgParticle::ParticleSystem&>(*find.mFoundNodes.front());
+            ASSERT_EQ(system.numParticles(), 2);
+
+            const osgParticle::Particle& young = *system.getParticle(0);
+            EXPECT_FLOAT_EQ(young.getCurrentColor().r(), 0.8f);
+            EXPECT_FLOAT_EQ(young.getCurrentAlpha(), 0.75f);
+            EXPECT_FLOAT_EQ(young.getCurrentSize(), 2.f);
+
+            const osgParticle::Particle& old = *system.getParticle(1);
+            EXPECT_FLOAT_EQ(old.getCurrentColor().r(), 0.4f);
+            EXPECT_FLOAT_EQ(old.getCurrentAlpha(), 0.25f);
+            EXPECT_FLOAT_EQ(old.getCurrentSize(), 4.f);
+        }
+    }
 }

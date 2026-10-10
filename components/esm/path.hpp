@@ -12,6 +12,19 @@ namespace ESM
     class Path
     {
     public:
+#ifdef __3DS__
+        const std::string& getOriginal() const { return mNormalized.value(); }
+
+        const VFS::Path::Normalized& getNormalized() const { return mNormalized; }
+
+        bool empty() const { return mNormalized.empty(); }
+
+        void set(std::string&& value) { mNormalized = VFS::Path::Normalized(std::move(value)); }
+
+        void set(std::string_view value) { mNormalized = VFS::Path::Normalized(value); }
+
+        void clear() { mNormalized.clear(); }
+#else
         const std::string& getOriginal() const { return mOriginal; }
 
         const VFS::Path::Normalized& getNormalized() const { return mNormalized; }
@@ -35,6 +48,7 @@ namespace ESM
             mOriginal.clear();
             mNormalized.clear();
         }
+#endif
 
         Path& operator=(const std::string& value)
         {
@@ -61,7 +75,9 @@ namespace ESM
         }
 
     private:
+#ifndef __3DS__
         std::string mOriginal;
+#endif
         VFS::Path::Normalized mNormalized;
     };
 }

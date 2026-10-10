@@ -25,16 +25,37 @@ namespace Files
     {
         if (gptr() == egptr())
         {
-            const std::size_t toRead = std::min((mOrigin + mSize) - (File::tell(mFile)), sizeof(mBuffer));
+            const std::size_t toRead = std::min(mSize - mFilePos, sizeof(mBuffer));
             // Read in the next chunk of data, and set the read pointers on success
             // Failure will throw exception.
             const std::size_t got = File::read(mFile, mBuffer, toRead);
+            mBufferPos = mFilePos;
+            mFilePos += got;
             setg(mBuffer, mBuffer, mBuffer + got);
         }
         if (gptr() == egptr())
             return traits_type::eof();
 
         return traits_type::to_int_type(*gptr());
+    }
+
+    std::streambuf::pos_type ConstrainedFileStreamBuf::seekTo(std::size_t position)
+    {
+        if (position > mSize)
+            return traits_type::eof();
+
+        if (eback() != nullptr && position >= mBufferPos
+            && position <= mBufferPos + static_cast<std::size_t>(egptr() - eback()))
+        {
+            setg(eback(), eback() + (position - mBufferPos), egptr());
+            return position;
+        }
+
+        File::seek(mFile, mOrigin + position);
+        mFilePos = position;
+
+        setg(nullptr, nullptr, nullptr);
+        return position;
     }
 
     std::streambuf::pos_type ConstrainedFileStreamBuf::seekoff(
@@ -51,7 +72,7 @@ namespace Files
                 newPos = offset;
                 break;
             case std::ios_base::cur:
-                newPos = (File::tell(mFile) - mOrigin - (egptr() - gptr())) + offset;
+                newPos = (eback() != nullptr ? mBufferPos + (gptr() - eback()) : mFilePos) + offset;
                 break;
             case std::ios_base::end:
                 newPos = mSize + offset;
@@ -60,15 +81,7 @@ namespace Files
                 return traits_type::eof();
         }
 
-        if (newPos > mSize)
-            return traits_type::eof();
-
-        File::seek(mFile, mOrigin + newPos);
-
-        // Clear read pointers so underflow() gets called on the next read attempt.
-        setg(nullptr, nullptr, nullptr);
-
-        return newPos;
+        return seekTo(newPos);
     }
 
     std::streambuf::pos_type ConstrainedFileStreamBuf::seekpos(pos_type pos, std::ios_base::openmode mode)
@@ -76,13 +89,6 @@ namespace Files
         if ((mode & std::ios_base::out) || !(mode & std::ios_base::in))
             return traits_type::eof();
 
-        if (static_cast<std::size_t>(pos) > mSize)
-            return traits_type::eof();
-
-        File::seek(mFile, mOrigin + pos);
-
-        // Clear read pointers so underflow() gets called on the next read attempt.
-        setg(nullptr, nullptr, nullptr);
-        return pos;
+        return seekTo(static_cast<std::size_t>(pos));
     }
 }

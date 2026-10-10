@@ -1,0 +1,128 @@
+; Rigid world geometry with per-vertex lighting.
+; v0: position (3 x s16, dequantised with posScale/posOffset)
+; v1: texcoord (2 x s16, times material.x)
+; v2: normal (3 x s8)
+; v3: colour (4 x u8; a fixed attribute of 255 when the mesh has no vertex colours)
+;
+; colour = emissive + vcEmissive * vc + vcBase * (ambient + diffuse * lighting), alpha = vc.a * ambient.w
+; where vcBase = vcMode.x * vc + vcMode.y and vcEmissive = vcMode.z.
+
+.fvec projection[4]
+.fvec modelView[3]
+.fvec posScale
+.fvec posOffset
+.fvec material      ; x: uv scale, yz: uv offset
+.fvec vcMode
+.fvec ambient       ; rgb: ambient term, a: material alpha
+.fvec diffuse
+.fvec emissive
+.fvec sunDir        ; view space, towards the light
+.fvec sunColor
+.fvec lightPos[4]   ; view space, w: 1 / radius^2
+.fvec lightColor[4]
+
+.constf consts(1.0, 0.0, 0.0078740157, 0.0039215686)
+.alias one consts.xxxx
+.alias zero consts.yyyy
+
+.out outpos position
+.out outtc0 texcoord0
+.out outclr color
+
+.alias inpos v0
+.alias intc v1
+.alias innrm v2
+.alias inclr v3
+
+.proc main
+    ; object space position
+    mov r0, inpos
+    mul r0.xyz, posScale, r0
+    add r0.xyz, posOffset, r0
+    mov r0.w, one
+
+    ; view space position
+    dp4 r1.x, modelView[0], r0
+    dp4 r1.y, modelView[1], r0
+    dp4 r1.z, modelView[2], r0
+    mov r1.w, one
+
+    dp4 outpos.x, projection[0], r1
+    dp4 outpos.y, projection[1], r1
+    dp4 outpos.z, projection[2], r1
+    dp4 outpos.w, projection[3], r1
+
+    mul r0, material.xxxx, intc
+    add outtc0, material.yzzz, r0
+
+    ; view space normal
+    mul r2, consts.zzzz, innrm
+    dp3 r3.x, modelView[0], r2
+    dp3 r3.y, modelView[1], r2
+    dp3 r3.z, modelView[2], r2
+    dp3 r3.w, r3, r3
+    rsq r3.w, r3.w
+    mul r3.xyz, r3.www, r3
+
+    call lighting
+    end
+.end
+
+; in: r1 view position, r3 view normal; out: colour
+.proc lighting
+    dp3 r4.x, sunDir, r3
+    max r4.x, zero, r4.x
+    mul r5.xyz, sunColor, r4.xxxx
+
+    add r6.xyz, lightPos[0], -r1
+    mov r6.w, lightPos[0].w
+    call attenuate
+    mul r7.xyz, lightColor[0], r7.yyyy
+    add r5.xyz, r5, r7
+
+    add r6.xyz, lightPos[1], -r1
+    mov r6.w, lightPos[1].w
+    call attenuate
+    mul r7.xyz, lightColor[1], r7.yyyy
+    add r5.xyz, r5, r7
+
+    add r6.xyz, lightPos[2], -r1
+    mov r6.w, lightPos[2].w
+    call attenuate
+    mul r7.xyz, lightColor[2], r7.yyyy
+    add r5.xyz, r5, r7
+
+    add r6.xyz, lightPos[3], -r1
+    mov r6.w, lightPos[3].w
+    call attenuate
+    mul r7.xyz, lightColor[3], r7.yyyy
+    add r5.xyz, r5, r7
+
+    ; combine with the material and the vertex colour
+    mul r5.xyz, diffuse, r5
+    add r5.xyz, ambient, r5
+    mul r8, consts.wwww, inclr
+    mul r9, vcMode.xxxx, r8
+    add r9, vcMode.yyyy, r9
+    mul r5.xyz, r9, r5
+    mul r10, vcMode.zzzz, r8
+    add r5.xyz, r10, r5
+    add r5.xyz, emissive, r5
+    mul r5.w, ambient.wwww, r8.wwww
+    min r5, one, r5
+    max r5, zero, r5
+    mov outclr, r5
+.end
+
+; in: r6.xyz light vector, r6.w 1/radius^2, r3 normal; out: r7.y = attenuated N.L
+.proc attenuate
+    dp3 r7.w, r6, r6
+    rsq r7.x, r7.w
+    mul r11.xyz, r7.xxxx, r6
+    dp3 r7.y, r11, r3
+    max r7.y, zero, r7.y
+    mul r7.z, r6.wwww, r7.wwww
+    add r7.z, one, -r7.z
+    max r7.z, zero, r7.z
+    mul r7.y, r7.yyyy, r7.zzzz
+.end

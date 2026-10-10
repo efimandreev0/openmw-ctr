@@ -1,3 +1,6 @@
+#ifdef OPENMW_CTR_NATIVE
+#include "ctr/weaponanimation.hpp"
+#else
 #ifndef OPENMW_MWRENDER_WEAPONANIMATION_H
 #define OPENMW_MWRENDER_WEAPONANIMATION_H
 
@@ -45,7 +48,7 @@ namespace MWRender
         void detachArrow(MWWorld::Ptr actor);
 
         /// @note If no weapon (or an invalid weapon) is equipped, this function is a no-op.
-        void releaseArrow(MWWorld::Ptr actor, float attackStrength);
+        void releaseArrow(MWWorld::Ptr actor, float attackStrength, float attackWindUp);
 
         /// Add WeaponAnimation-related controllers to \a nodes and store the added controllers in \a map.
         void addControllers(const Animation::NodeMap& nodes,
@@ -78,3 +81,4 @@ namespace MWRender
 }
 
 #endif
+#endif // OPENMW_CTR_NATIVE

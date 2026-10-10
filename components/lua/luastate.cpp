@@ -237,8 +237,16 @@ namespace LuaUtil
                 sol.script(R"(
                     local _pairs = pairs
                     local _ipairs = ipairs
-                    pairs = function(v) return (rawget(getmetatable(v) or {}, '__pairs') or _pairs)(v) end
-                    ipairs = function(v) return (rawget(getmetatable(v) or {}, '__ipairs') or _ipairs)(v) end
+                    pairs = function(v)
+                        local meta = getmetatable(v)
+                        local override = meta and rawget(meta, '__pairs')
+                        return (override or _pairs)(v)
+                    end
+                    ipairs = function(v)
+                        local meta = getmetatable(v)
+                        local override = meta and rawget(meta, '__ipairs')
+                        return (override or _ipairs)(v)
+                    end
                 )");
             }
 

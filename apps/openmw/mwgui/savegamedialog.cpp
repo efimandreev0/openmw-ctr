@@ -1,6 +1,6 @@
 #include "savegamedialog.hpp"
 
-#include <iomanip>
+#include <format>
 #include <sstream>
 
 #include <MyGUI_ComboBox.h>
@@ -9,15 +9,16 @@
 #include <MyGUI_LanguageManager.h>
 #include <MyGUI_UString.h>
 
+#ifndef OPENMW_CTR_NATIVE
 #include <osg/Texture2D>
 #include <osgDB/ReadFile>
+#endif
 
 #include <components/debug/debuglog.hpp>
 #include <components/esm3/loadclas.hpp>
 #include <components/files/conversion.hpp>
 #include <components/files/memorystream.hpp>
 #include <components/l10n/manager.hpp>
-#include <components/misc/strings/format.hpp>
 #include <components/misc/strings/lower.hpp>
 #include <components/misc/timeconvert.hpp>
 #include <components/myguiplatform/myguitexture.hpp>
@@ -164,11 +165,10 @@ namespace MWGui
                 hour = 12;
 
             ESM::EpochTimeStamp currentDate = timeManager.getEpochTimeStamp();
-            std::string daysPassed
-                = Misc::StringUtils::format("#{Calendar:day} %i", timeManager.getTimeStamp().getDay());
             std::string_view formattedHour(pm ? "#{Calendar:pm}" : "#{Calendar:am}");
-            std::string autoFilename = Misc::StringUtils::format(
-                "%s - %i %s %i %s", daysPassed, currentDate.mDay, month, hour, formattedHour);
+
+            std::string autoFilename = std::format("#{{Calendar:day}} {} - {} {} {} {}",
+                timeManager.getTimeStamp().getDay(), currentDate.mDay, month, hour, formattedHour);
 
             mSaveNameEdit->setCaptionWithReplacing(autoFilename);
         }
@@ -478,15 +478,15 @@ namespace MWGui
 
         text << Misc::fileTimeToString(mCurrentSlot->mTimeStamp, "%Y.%m.%d %T") << "\n";
 
-        mCellName->setCaptionWithReplacing("#{sCell=" + mCurrentSlot->mProfile.mPlayerCellName + "}");
+        mCellName->setCaptionWithReplacing(std::format("#{{sCell={}}}", mCurrentSlot->mProfile.mPlayerCellName));
         mInfoText->setCaptionWithReplacing(text.str());
 
         // Reset the image for the case we're unable to recover a screenshot
         mScreenshotTexture.reset();
         mScreenshot->setRenderItemTexture(nullptr);
-        mScreenshot->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+        mScreenshot->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
 
-        // Decode screenshot
+#ifndef OPENMW_CTR_NATIVE
         const std::vector<char>& data = mCurrentSlot->mProfile.mScreenshot;
         if (!data.size())
         {
@@ -524,6 +524,7 @@ namespace MWGui
 
         mScreenshotTexture = std::make_unique<MyGUIPlatform::OSGTexture>(texture);
         mScreenshot->setRenderItemTexture(mScreenshotTexture.get());
+#endif
     }
 
     ControllerButtons* SaveGameDialog::getControllerButtons()

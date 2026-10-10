@@ -5,7 +5,12 @@
 #include <stdexcept>
 #include <string_view>
 
+#ifdef OPENMW_CTR_NATIVE
+#include "adpcmpack.hpp"
+#include "ctrdecoders.hpp"
+#else
 #include "ffmpegdecoder.hpp"
+#endif
 
 namespace MWSound
 {
@@ -207,8 +212,24 @@ namespace MWSound
         return done * frameBytes;
     }
 
+#ifdef OPENMW_CTR_NATIVE
+    std::shared_ptr<const PrebuiltAdpcm> CtrAudioDecoder::getPrebuilt() const
+    {
+        if (const auto* adpcm = dynamic_cast<const AdpcmPackDecoder*>(mActive.get()))
+            return adpcm->getSound();
+        return nullptr;
+    }
+#endif
+
     void CtrAudioDecoder::open(VFS::Path::NormalizedView fname)
     {
+#ifdef OPENMW_CTR_NATIVE
+        if (std::shared_ptr<const PrebuiltAdpcm> prebuilt = PrebuiltAdpcm::find(fname))
+        {
+            mActive = std::make_shared<AdpcmPackDecoder>(mResourceMgr, std::move(prebuilt));
+            return;
+        }
+#endif
         auto nsa = std::make_shared<NsaDecoder>(mResourceMgr);
         try
         {
@@ -220,10 +241,14 @@ namespace MWSound
         {
             // no cache entry (or a bad one) — use the stock FFmpeg path
         }
+#ifdef OPENMW_CTR_NATIVE
+        mActive = makeCtrFileDecoder(mResourceMgr, fname);
+#else
         // Through the base pointer: FFmpegDecoder declares its overrides
         // private (OpenMW style), access is via the SoundDecoder interface.
-        std::shared_ptr<SoundDecoder> ffmpeg = std::make_shared<FFmpegDecoder>(mResourceMgr);
+        std::shared_ptr<SoundDecoder> ffmpeg = std::make_shared<FFmpegDecoder>(mResourceMgr, nullptr, /*recordHead=*/false);
         ffmpeg->open(fname);
         mActive = std::move(ffmpeg);
+#endif
     }
 }

@@ -22,10 +22,22 @@
 #include "confirmationdialog.hpp"
 #include "savegamedialog.hpp"
 #include "settingswindow.hpp"
+#ifndef OPENMW_CTR_NATIVE
 #include "videowidget.hpp"
+#endif
 
 namespace MWGui
 {
+#ifdef OPENMW_CTR_NATIVE
+    void MenuVideo::run() {}
+    MenuVideo::MenuVideo(const VFS::Manager*)
+        : mRunning(false)
+    {
+    }
+    void MenuVideo::resize(int, int) {}
+    void MenuVideo::commitFrame() {}
+    MenuVideo::~MenuVideo() = default;
+#else
     void MenuVideo::run()
     {
         Misc::FrameRateLimiter frameRateLimiter
@@ -78,6 +90,12 @@ namespace MWGui
         mVideo->setVisible(true);
     }
 
+    void MenuVideo::commitFrame()
+    {
+        if (mVideo)
+            mVideo->commitFrame();
+    }
+
     MenuVideo::~MenuVideo()
     {
         mRunning = false;
@@ -91,6 +109,7 @@ namespace MWGui
             Log(Debug::Error) << "Error in the destructor: " << e.what();
         }
     }
+#endif
 
     MainMenu::MainMenu(int w, int h, const VFS::Manager* vfs, const std::string& versionDescription)
         : WindowBase("openmw_mainmenu.layout")
@@ -279,6 +298,12 @@ namespace MWGui
             }
             mBackground->setVisible(true);
         }
+    }
+
+    void MainMenu::onFrame(float)
+    {
+        if (mVideo)
+            mVideo->commitFrame();
     }
 
     bool MainMenu::exit()

@@ -4,7 +4,6 @@
 #include <memory>
 #include <vector>
 
-#include <osg/Group>
 #include <osg/Stats>
 #include <osg/Timer>
 
@@ -16,6 +15,7 @@
 #include <BulletCollision/CollisionShapes/btSphereShape.h>
 #include <BulletCollision/CollisionShapes/btStaticPlaneShape.h>
 
+#include <LinearMath/btIDebugDraw.h>
 #include <LinearMath/btQuickprof.h>
 #include <LinearMath/btVector3.h>
 
@@ -39,8 +39,6 @@
 #include "../mwworld/cellstore.hpp"
 #include "../mwworld/esmstore.hpp"
 #include "../mwworld/player.hpp"
-
-#include "../mwrender/bulletdebugdraw.hpp"
 
 #include "../mwworld/class.hpp"
 
@@ -92,7 +90,7 @@ namespace
 
 namespace MWPhysics
 {
-    PhysicsSystem::PhysicsSystem(Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode)
+    PhysicsSystem::PhysicsSystem(Resource::ResourceSystem* resourceSystem, std::unique_ptr<btIDebugDraw> debugDrawer)
 #if defined(__vita__) || defined(__3DS__)
         : mPhysicsDt(1.f / 30.f)
 #else
@@ -107,7 +105,7 @@ namespace MWPhysics
         , mProjectileId(0)
         , mWaterHeight(0)
         , mWaterEnabled(false)
-        , mParentNode(std::move(parentNode))
+        , mDebugDrawer(std::move(debugDrawer))
     {
         mResourceSystem->addResourceManager(mShapeManager.get());
 
@@ -142,8 +140,7 @@ namespace MWPhysics
             }
         }
 
-        mDebugDrawer = std::make_unique<MWRender::DebugDrawer>(mParentNode, mCollisionWorld.get(), mDebugDrawEnabled);
-        mTaskScheduler = std::make_unique<PhysicsTaskScheduler>(mPhysicsDt, mCollisionWorld.get(), mDebugDrawer.get());
+        mTaskScheduler = std::make_unique<PhysicsTaskScheduler>(mPhysicsDt, mCollisionWorld.get());
     }
 
     PhysicsSystem::~PhysicsSystem()
@@ -403,11 +400,11 @@ namespace MWPhysics
         return MovementSolver::traceDown(ptr, position, found->second.get(), mCollisionWorld.get(), maxHeight);
     }
 
-    void PhysicsSystem::addHeightField(
-        const float* heights, int x, int y, int size, int verts, float minH, float maxH, const osg::Object* holdObject)
+    void PhysicsSystem::addHeightField(const float* heights, int x, int y, int size, int verts, float minH, float maxH,
+        std::shared_ptr<const ESMTerrain::LandObject> holdObject)
     {
-        mHeightFields[std::make_pair(x, y)]
-            = std::make_unique<HeightField>(heights, x, y, size, verts, minH, maxH, holdObject, mTaskScheduler.get());
+        mHeightFields[std::make_pair(x, y)] = std::make_unique<HeightField>(
+            heights, x, y, size, verts, minH, maxH, std::move(holdObject), mTaskScheduler.get());
     }
 
     void PhysicsSystem::removeHeightField(int x, int y)
@@ -434,7 +431,7 @@ namespace MWPhysics
         const VFS::Path::Normalized animationMesh = ptr.getClass().useAnim()
             ? Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS())
             : VFS::Path::Normalized(mesh);
-        osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(animationMesh);
+        std::shared_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(animationMesh);
         if (!shapeInstance || !shapeInstance->mCollisionShape)
             return;
 
@@ -583,7 +580,7 @@ namespace MWPhysics
     {
         const VFS::Path::Normalized animationMesh
             = Misc::ResourceHelpers::correctActorModelPath(mesh, mResourceSystem->getVFS());
-        osg::ref_ptr<const Resource::BulletShape> shape = mShapeManager->getShape(animationMesh);
+        std::shared_ptr<const Resource::BulletShape> shape = mShapeManager->getShape(animationMesh);
 
         // Try to get shape from basic model as fallback for creatures
         if (!ptr.getClass().isNpc() && shape && shape->mCollisionBox.mExtents.length2() == 0)
@@ -602,7 +599,7 @@ namespace MWPhysics
         const bool canWaterWalk = effects.getOrDefault(ESM::MagicEffect::WaterWalking).getMagnitude() > 0;
 
         auto actor = std::make_shared<Actor>(
-            ptr, shape, mTaskScheduler.get(), canWaterWalk, Settings::game().mActorCollisionShapeType);
+            ptr, *shape, mTaskScheduler.get(), canWaterWalk, Settings::game().mActorCollisionShapeType);
 
         mActors.emplace(ptr.mRef, std::move(actor));
     }
@@ -610,7 +607,7 @@ namespace MWPhysics
     int PhysicsSystem::addProjectile(
         const MWWorld::Ptr& caster, const osg::Vec3f& position, VFS::Path::NormalizedView mesh, bool computeRadius)
     {
-        osg::ref_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(mesh);
+        std::shared_ptr<Resource::BulletShapeInstance> shapeInstance = mShapeManager->getInstance(mesh);
         assert(shapeInstance);
         float radius = computeRadius ? shapeInstance->mCollisionBox.mExtents.length() / 2.f : 1.f;
 
@@ -895,7 +892,7 @@ namespace MWPhysics
     void PhysicsSystem::reportCollision(const btVector3& position, const btVector3& normal)
     {
         if (mDebugDrawEnabled)
-            mDebugDrawer->addCollision(position, normal);
+            mDebugDrawer->drawContactPoint(position, normal, 0, 0, btVector3(1, 0, 0));
     }
 
     ActorFrameData::ActorFrameData(

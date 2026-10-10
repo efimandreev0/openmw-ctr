@@ -7,10 +7,10 @@ BUILD_DIR="${1:?build dir}"
 SOURCE_DIR="${2:?source dir}"
 
 export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
-TOOLS="${DEVKITPRO}/tools/bin"
+TOOLS="${CTR_TOOLS:-${DEVKITPRO}/tools/bin}"
 CTR_DATA="${SOURCE_DIR}/data/ctr"
-ELF="${BUILD_DIR}/apps/openmw/openmw.elf"
-OUT_DIR="${BUILD_DIR}/apps/openmw"
+ELF="${BUILD_DIR}/openmw.elf"
+OUT_DIR="${BUILD_DIR}"
 ROMFS="${BUILD_DIR}/romfs"
 
 echo "=== Assembling romfs ==="
@@ -22,15 +22,27 @@ cp "${BUILD_DIR}/defaults.bin" "${ROMFS}/defaults.bin"
 cp "${BUILD_DIR}/gamecontrollerdb.txt" "${ROMFS}/gamecontrollerdb.txt" 2>/dev/null || true
 cp -r "${BUILD_DIR}/resources" "${ROMFS}/resources"
 
-echo "=== Building SMDH / banner ==="
-"${TOOLS}/bannertool" makesmdh -s "OpenMW" -l "OpenMW engine for Morrowind (New 3DS)" \
-    -p "OpenMW team" -i "${CTR_DATA}/icon.png" -o "${OUT_DIR}/openmw.smdh"
-"${TOOLS}/bannertool" makebanner -i "${CTR_DATA}/banner.png" -a "${CTR_DATA}/audio.wav" \
-    -o "${OUT_DIR}/openmw.bnr"
+echo "=== Building SMDH ==="
+if [ -x "${TOOLS}/bannertool" ]; then
+    "${TOOLS}/bannertool" makesmdh -s "OpenMW" -l "OpenMW engine for Morrowind" \
+        -p "OpenMW team" -i "${CTR_DATA}/icon.png" -o "${OUT_DIR}/openmw.smdh"
+else
+    "${TOOLS}/smdhtool" --create "OpenMW" "OpenMW engine for Morrowind" "OpenMW team" \
+        "${CTR_DATA}/icon.png" "${OUT_DIR}/openmw.smdh"
+fi
 
 echo "=== Building 3dsx (homebrew launcher testing) ==="
 "${TOOLS}/3dsxtool" "${ELF}" "${OUT_DIR}/openmw.3dsx" \
     --smdh="${OUT_DIR}/openmw.smdh" --romfs="${ROMFS}"
+
+if [ ! -x "${TOOLS}/makerom" ] || [ ! -x "${TOOLS}/bannertool" ]; then
+    echo "makerom/bannertool not installed: built ${OUT_DIR}/openmw.3dsx only"
+    exit 0
+fi
+
+echo "=== Building banner ==="
+"${TOOLS}/bannertool" makebanner -i "${CTR_DATA}/banner.png" -a "${CTR_DATA}/audio.wav" \
+    -o "${OUT_DIR}/openmw.bnr"
 
 echo "=== Building CIA ==="
 "${TOOLS}/makerom" -f cia -o "${OUT_DIR}/openmw.cia" \

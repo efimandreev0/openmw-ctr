@@ -26,6 +26,7 @@ namespace ESM
         static constexpr Flags sMerge = 1ull << 3;
 
         static constexpr Flags sMenu = 1ull << 4; // start as a menu script
+        static constexpr Flags sLoad = 1ull << 5; // content loading script
 
         VFS::Path::Normalized mScriptPath;
         std::string mInitializationData; // Serialized Lua table. It is a binary data. Can contain '\0'.
@@ -62,7 +63,9 @@ namespace ESM
         std::vector<LuaScriptCfg> mScripts;
 
         void load(ESMReader& esm);
+#ifndef OPENMW_NO_LUA
         void adjustRefNums(const ESMReader& esm);
+#endif
 
         void save(ESMWriter& esm) const;
     };
@@ -73,10 +76,11 @@ namespace ESM
 
     struct LuaTimer
     {
-        enum class Type : bool
+        enum class Type : unsigned char
         {
             SIMULATION_TIME = 0,
             GAME_TIME = 1,
+            REAL_TIME = 2,
         };
 
         Type mType;

@@ -1,0 +1,34 @@
+; MyGUI / 2D vertex shader.
+; v0: position (x, y in MyGUI clip space [-1, 1], y up; z ignored)
+; v1: colour (4 x u8, 0..255)
+; v2: texture coordinates (u, v), v = 0 at the top of the image (matches the texture layout, see CtrGpu)
+
+.fvec projection[4]
+
+.constf consts(0.0, 1.0, -0.5, 0.0039215686)
+.alias zero consts.xxxx
+.alias one consts.yyyy
+
+.out outpos position
+.out outtc0 texcoord0
+.out outclr color
+
+.alias inpos v0
+.alias inclr v1
+.alias intex v2
+
+.proc main
+    mov r0.xy, inpos.xy
+    mov r0.z, zero
+    mov r0.w, one
+
+    dp4 r1.x, projection[0], r0
+    dp4 r1.y, projection[1], r0
+    mov r1.z, consts.z
+    dp4 r1.w, projection[3], r0
+    mov outpos, r1
+
+    mov outtc0, intex
+    mul outclr, consts.wwww, inclr
+    end
+.end
