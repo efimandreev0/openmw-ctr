@@ -34,7 +34,7 @@ AccessControlInfo:
   MemoryType              : Application
   # Old3DS memory mode — the game will not realistically run there, but the
   # field is mandatory. New3DS settings below are what matters.
-  SystemMode              : 64MB
+  SystemMode              : 80MB
   IdealProcessor          : 0
   AffinityMask            : 1
   Priority                : 16
